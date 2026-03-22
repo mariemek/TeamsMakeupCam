@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# Python / MediaPipe
+venv/
+__pycache__/
+*.pyc
+
+# Large helper (exclude from Git)
+Services/Resources/mediapipe_helper
+Services/Resources/face_landmarker.task
