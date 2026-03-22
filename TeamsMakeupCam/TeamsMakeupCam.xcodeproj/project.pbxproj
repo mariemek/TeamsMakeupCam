@@ -24,16 +24,6 @@
 		6B9339602F6F55D200E9D24B /* face_landmarker.task */ = {isa = PBXFileReference; lastKnownFileType = file; name = face_landmarker.task; path = TeamsMakeupCam/Services/Resources/face_landmarker.task; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		6BD545CF2F6F65330017760A /* Exceptions for "TeamsMakeupCam" folder in "TeamsMakeupCam" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Services/.swift,
-			);
-			target = 6B33C08C2F64F57700127B61 /* TeamsMakeupCam */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 		6B93395F2F6F51F500E9D24B /* Exceptions for "TeamsMakeupCam" folder in "Copy Files" phase from "TeamsMakeupCam" target */ = {
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
@@ -45,21 +35,12 @@
 				Services/Resources/mediapipe_helper,
 			);
 		};
-		6BD545D02F6F65330017760A /* Exceptions for "TeamsMakeupCam" folder in "Compile Sources" phase from "TeamsMakeupCam" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = 6B33C0892F64F57700127B61 /* Sources */;
-			membershipExceptions = (
-				Services/.swift,
-			);
-		};
 /* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6B33C08F2F64F57700127B61 /* TeamsMakeupCam */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				6BD545CF2F6F65330017760A /* Exceptions for "TeamsMakeupCam" folder in "TeamsMakeupCam" target */,
-				6BD545D02F6F65330017760A /* Exceptions for "TeamsMakeupCam" folder in "Compile Sources" phase from "TeamsMakeupCam" target */,
 				6B93395F2F6F51F500E9D24B /* Exceptions for "TeamsMakeupCam" folder in "Copy Files" phase from "TeamsMakeupCam" target */,
 			);
 			path = TeamsMakeupCam;
