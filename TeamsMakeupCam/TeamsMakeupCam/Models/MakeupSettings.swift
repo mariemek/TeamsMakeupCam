@@ -1,38 +1,29 @@
 import SwiftUI
 import AppKit
 
-struct MakeupSettings {
+struct MakeupSettings: Codable, Equatable {
     // MARK: - Lipstick
     var lipstickNSColor: NSColor = .systemRed
-    var lipstickOpacity: Double = 0.18
+    var lipstickOpacity: Double = 0.0
 
     // MARK: - Lip Liner
     var lipLinerNSColor: NSColor = .systemRed
-    var lipLinerIntensity: Double = 0.16
+    var lipLinerIntensity: Double = 0.0
 
     // MARK: - Brows
     var browNSColor: NSColor = NSColor(red: 0.30, green: 0.20, blue: 0.12, alpha: 1)
-    var browIntensity: Double = 0.18
+    var browIntensity: Double = 0.0
 
-    /// 0...1, changes the overall brow fill thickness.
-    var browThickness: Double = 0.45
-
-    /// -1...1, raises or lowers the arch around the middle/outer-middle of the brow.
+    var browThickness: Double = 0.0
     var browArchAmount: Double = 0.0
-
-    /// -1...1, lifts or drops the outer tail.
     var browTailLift: Double = 0.0
-
-    /// -1...1, moves the whole brow up/down.
     var browHeightOffset: Double = 0.0
-
-    /// 0.75...1.25, narrows or widens the brow around its center.
-    var browHorizontalScale: Double = 1.0
+    var browHorizontalScale: Double = 0.0
 
     // MARK: - Eyes / Skin
-    var smoothingStrength: Double = 0.12
-    var eyelinerIntensity: Double = 0.14
-    var lashesIntensity: Double = 0.10
+    var smoothingStrength: Double = 0.0
+    var eyelinerIntensity: Double = 0.0
+    var lashesIntensity: Double = 0.0
 
     // MARK: - SwiftUI Color bindings
 
@@ -49,6 +40,91 @@ struct MakeupSettings {
     var browColor: Color {
         get { Color(nsColor: browNSColor) }
         set { browNSColor = NSColor(newValue) }
+    }
+
+    // MARK: - Codable (manual, because NSColor isn't Codable)
+
+    enum CodingKeys: String, CodingKey {
+        case lipstickNSColor, lipstickOpacity
+        case lipLinerNSColor, lipLinerIntensity
+        case browNSColor, browIntensity
+        case browThickness, browArchAmount, browTailLift, browHeightOffset, browHorizontalScale
+        case smoothingStrength, eyelinerIntensity, lashesIntensity
+    }
+
+    init(
+        lipstickNSColor: NSColor = .systemRed,
+        lipstickOpacity: Double = 0.18,
+        lipLinerNSColor: NSColor = .systemRed,
+        lipLinerIntensity: Double = 0.16,
+        browNSColor: NSColor = NSColor(red: 0.30, green: 0.20, blue: 0.12, alpha: 1),
+        browIntensity: Double = 0.0,
+        browThickness: Double = 0.0,
+        browArchAmount: Double = 0.0,
+        browTailLift: Double = 0.0,
+        browHeightOffset: Double = 0.0,
+        browHorizontalScale: Double = 0.0,
+        smoothingStrength: Double = 0.0,
+        eyelinerIntensity: Double = 0.5,
+        lashesIntensity: Double = 0.0
+    ) {
+        self.lipstickNSColor = lipstickNSColor
+        self.lipstickOpacity = lipstickOpacity
+        self.lipLinerNSColor = lipLinerNSColor
+        self.lipLinerIntensity = lipLinerIntensity
+        self.browNSColor = browNSColor
+        self.browIntensity = browIntensity
+        self.browThickness = browThickness
+        self.browArchAmount = browArchAmount
+        self.browTailLift = browTailLift
+        self.browHeightOffset = browHeightOffset
+        self.browHorizontalScale = browHorizontalScale
+        self.smoothingStrength = smoothingStrength
+        self.eyelinerIntensity = eyelinerIntensity
+        self.lashesIntensity = lashesIntensity
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lipstickOpacity    = try c.decode(Double.self, forKey: .lipstickOpacity)
+        lipLinerIntensity  = try c.decode(Double.self, forKey: .lipLinerIntensity)
+        browIntensity      = try c.decode(Double.self, forKey: .browIntensity)
+        browThickness      = try c.decode(Double.self, forKey: .browThickness)
+        browArchAmount     = try c.decode(Double.self, forKey: .browArchAmount)
+        browTailLift       = try c.decode(Double.self, forKey: .browTailLift)
+        browHeightOffset   = try c.decode(Double.self, forKey: .browHeightOffset)
+        browHorizontalScale = try c.decode(Double.self, forKey: .browHorizontalScale)
+        smoothingStrength  = try c.decode(Double.self, forKey: .smoothingStrength)
+        eyelinerIntensity  = try c.decode(Double.self, forKey: .eyelinerIntensity)
+        lashesIntensity    = try c.decode(Double.self, forKey: .lashesIntensity)
+
+        // NSColor decoded from archived Data
+        let lipstickData  = try c.decode(Data.self, forKey: .lipstickNSColor)
+        let lipLinerData  = try c.decode(Data.self, forKey: .lipLinerNSColor)
+        let browData      = try c.decode(Data.self, forKey: .browNSColor)
+        lipstickNSColor = NSColor.from(data: lipstickData) ?? .systemRed
+        lipLinerNSColor = NSColor.from(data: lipLinerData) ?? .systemRed
+        browNSColor     = NSColor.from(data: browData) ?? NSColor(red: 0.30, green: 0.20, blue: 0.12, alpha: 1)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(lipstickOpacity,     forKey: .lipstickOpacity)
+        try c.encode(lipLinerIntensity,   forKey: .lipLinerIntensity)
+        try c.encode(browIntensity,       forKey: .browIntensity)
+        try c.encode(browThickness,       forKey: .browThickness)
+        try c.encode(browArchAmount,      forKey: .browArchAmount)
+        try c.encode(browTailLift,        forKey: .browTailLift)
+        try c.encode(browHeightOffset,    forKey: .browHeightOffset)
+        try c.encode(browHorizontalScale, forKey: .browHorizontalScale)
+        try c.encode(smoothingStrength,   forKey: .smoothingStrength)
+        try c.encode(eyelinerIntensity,   forKey: .eyelinerIntensity)
+        try c.encode(lashesIntensity,     forKey: .lashesIntensity)
+
+        // NSColor encoded as archived Data
+        try c.encode(lipstickNSColor.toData() ?? Data(), forKey: .lipstickNSColor)
+        try c.encode(lipLinerNSColor.toData() ?? Data(), forKey: .lipLinerNSColor)
+        try c.encode(browNSColor.toData()     ?? Data(), forKey: .browNSColor)
     }
 
     // MARK: - Beauty SDK parameter mapping
@@ -77,70 +153,43 @@ struct MakeupSettings {
         return BeautySdkParameters(
             lipstickRGBA: rgba(lipstickNSColor, alpha: lipstickOpacity),
             lipLinerRGBA: rgba(lipLinerNSColor, alpha: min(max(lipLinerIntensity, 0), 1) * 0.8),
-            browRGBA: rgba(browNSColor, alpha: min(max(browIntensity, 0), 1) * 0.8),
-            browIntensity: Float(max(0, min(browIntensity, 1))),
+            browRGBA:     rgba(browNSColor,     alpha: min(max(browIntensity, 0), 1) * 0.8),
+            browIntensity:     Float(max(0, min(browIntensity, 1))),
             eyelinerIntensity: Float(max(0, min(eyelinerIntensity, 1))),
-            lashesIntensity: Float(max(0, min(lashesIntensity, 1))),
+            lashesIntensity:   Float(max(0, min(lashesIntensity, 1))),
             smoothingStrength: Float(max(0, min(smoothingStrength, 1)))
         )
     }
+}
 
-    // MARK: - Presets
+// MARK: - NSColor + Codable helper
 
-    static let naturalPreset = MakeupSettings(
-        lipstickNSColor: .systemRed,
-        lipstickOpacity: 0.10,
-        lipLinerNSColor: .systemRed,
-        lipLinerIntensity: 0.08,
+extension NSColor {
+    func toData() -> Data? {
+        try? NSKeyedArchiver.archivedData(withRootObject: self, requiringSecureCoding: true)
+    }
+    static func from(data: Data) -> NSColor? {
+        try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data)
+    }
+}
 
-        browNSColor: NSColor(red: 0.28, green: 0.18, blue: 0.10, alpha: 1),
-        browIntensity: 0.10,
-        browThickness: 0.38,
-        browArchAmount: 0.05,
-        browTailLift: 0.04,
-        browHeightOffset: 0.0,
-        browHorizontalScale: 1.0,
+// MARK: - Equatable (NSColor doesn't auto-synthesize)
 
-        smoothingStrength: 0.08,
-        eyelinerIntensity: 0.06,
-        lashesIntensity: 0.06
-    )
-
-    static let softGlamPreset = MakeupSettings(
-        lipstickNSColor: .systemPink,
-        lipstickOpacity: 0.18,
-        lipLinerNSColor: .systemPink,
-        lipLinerIntensity: 0.16,
-
-        browNSColor: NSColor(red: 0.32, green: 0.20, blue: 0.12, alpha: 1),
-        browIntensity: 0.16,
-        browThickness: 0.48,
-        browArchAmount: 0.12,
-        browTailLift: 0.10,
-        browHeightOffset: 0.02,
-        browHorizontalScale: 1.03,
-
-        smoothingStrength: 0.12,
-        eyelinerIntensity: 0.14,
-        lashesIntensity: 0.12
-    )
-
-    static let polishedPreset = MakeupSettings(
-        lipstickNSColor: .systemRed,
-        lipstickOpacity: 0.24,
-        lipLinerNSColor: .systemRed,
-        lipLinerIntensity: 0.22,
-
-        browNSColor: NSColor(red: 0.22, green: 0.13, blue: 0.08, alpha: 1),
-        browIntensity: 0.22,
-        browThickness: 0.56,
-        browArchAmount: 0.18,
-        browTailLift: 0.16,
-        browHeightOffset: 0.03,
-        browHorizontalScale: 1.05,
-
-        smoothingStrength: 0.16,
-        eyelinerIntensity: 0.20,
-        lashesIntensity: 0.16
-    )
+extension MakeupSettings {
+    static func == (lhs: MakeupSettings, rhs: MakeupSettings) -> Bool {
+        lhs.lipstickNSColor    == rhs.lipstickNSColor &&
+        lhs.lipstickOpacity    == rhs.lipstickOpacity &&
+        lhs.lipLinerNSColor    == rhs.lipLinerNSColor &&
+        lhs.lipLinerIntensity  == rhs.lipLinerIntensity &&
+        lhs.browNSColor        == rhs.browNSColor &&
+        lhs.browIntensity      == rhs.browIntensity &&
+        lhs.browThickness      == rhs.browThickness &&
+        lhs.browArchAmount     == rhs.browArchAmount &&
+        lhs.browTailLift       == rhs.browTailLift &&
+        lhs.browHeightOffset   == rhs.browHeightOffset &&
+        lhs.browHorizontalScale == rhs.browHorizontalScale &&
+        lhs.smoothingStrength  == rhs.smoothingStrength &&
+        lhs.eyelinerIntensity  == rhs.eyelinerIntensity &&
+        lhs.lashesIntensity    == rhs.lashesIntensity
+    }
 }

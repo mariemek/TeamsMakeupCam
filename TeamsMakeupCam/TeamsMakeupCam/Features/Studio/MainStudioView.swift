@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MainStudioView: View {
     @EnvironmentObject private var viewModel: StudioViewModel
+    @StateObject private var presetStore = PresetStore()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,9 +11,7 @@ struct MainStudioView: View {
             content
         }
         .alert(item: Binding(
-            get: {
-                viewModel.errorMessage.map { ErrorWrapper(message: $0) }
-            },
+            get: { viewModel.errorMessage.map { ErrorWrapper(message: $0) } },
             set: { _ in viewModel.errorMessage = nil }
         )) { wrapper in
             Alert(
@@ -21,15 +20,15 @@ struct MainStudioView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .onChange(of: viewModel.makeupSettings) { _ in
+            viewModel.syncMakeupSettingsToProcessor()
+        }
     }
 
     private var topBar: some View {
         HStack {
-            Button("Natural") { viewModel.applyNaturalPreset() }
-            Button("Soft Glam") { viewModel.applySoftGlamPreset() }
-            Button("Polished") { viewModel.applyPolishedPreset() }
             Spacer()
-            Text(viewModel.isSessionRunning ? "Live" : "Stopped")
+            Text(viewModel.isSessionRunning ? "● Live" : "○ Stopped")
                 .foregroundColor(viewModel.isSessionRunning ? .green : .secondary)
                 .font(.caption)
         }
@@ -42,6 +41,7 @@ struct MainStudioView: View {
                 .frame(width: 260)
                 .background(.regularMaterial)
                 .environmentObject(viewModel)
+                .environmentObject(presetStore)
 
             Divider()
 
@@ -62,4 +62,3 @@ struct MainStudioView: View {
         let message: String
     }
 }
-

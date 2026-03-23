@@ -24,24 +24,21 @@
 		6B9339602F6F55D200E9D24B /* face_landmarker.task */ = {isa = PBXFileReference; lastKnownFileType = file; name = face_landmarker.task; path = TeamsMakeupCam/Services/Resources/face_landmarker.task; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		6B93395F2F6F51F500E9D24B /* Exceptions for "TeamsMakeupCam" folder in "Copy Files" phase from "TeamsMakeupCam" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			attributesByRelativePath = {
-				Services/Resources/mediapipe_helper = (CodeSignOnCopy, );
-			};
-			buildPhase = 6B93395D2F6F51CB00E9D24B /* Copy Files */;
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		6BD545D12F6F8F860017760A /* Exceptions for "TeamsMakeupCam" folder in "TeamsMakeupCam" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Services/Resources/mediapipe_helper,
 			);
+			target = 6B33C08C2F64F57700127B61 /* TeamsMakeupCam */;
 		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6B33C08F2F64F57700127B61 /* TeamsMakeupCam */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				6B93395F2F6F51F500E9D24B /* Exceptions for "TeamsMakeupCam" folder in "Copy Files" phase from "TeamsMakeupCam" target */,
+				6BD545D12F6F8F860017760A /* Exceptions for "TeamsMakeupCam" folder in "TeamsMakeupCam" target */,
 			);
 			path = TeamsMakeupCam;
 			sourceTree = "<group>";

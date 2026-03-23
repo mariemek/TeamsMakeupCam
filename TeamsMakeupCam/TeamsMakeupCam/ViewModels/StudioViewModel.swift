@@ -11,7 +11,7 @@ final class StudioViewModel: ObservableObject {
     @Published var isSessionRunning: Bool = false
     @Published var errorMessage: String?
 
-    @Published var makeupSettings: MakeupSettings = .naturalPreset
+    @Published var makeupSettings: MakeupSettings = MakeupSettings()
     @Published var debugLandmarks: [FaceLandmarks] = []
     @Published var processedFrame: CIImage?
 
@@ -109,21 +109,6 @@ final class StudioViewModel: ObservableObject {
     func selectCamera(_ camera: CameraDevice) {
         selectedCamera = camera
         configureSession()
-    }
-
-    func applyNaturalPreset() {
-        makeupSettings = .naturalPreset
-        syncMakeupSettingsToProcessor()
-    }
-
-    func applySoftGlamPreset() {
-        makeupSettings = .softGlamPreset
-        syncMakeupSettingsToProcessor()
-    }
-
-    func applyPolishedPreset() {
-        makeupSettings = .polishedPreset
-        syncMakeupSettingsToProcessor()
     }
 
     func syncMakeupSettingsToProcessor() {
