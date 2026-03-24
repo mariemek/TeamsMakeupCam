@@ -42,7 +42,7 @@ final class LipLinerRenderer {
 
         layer.strokeColor   = darker.withAlphaComponent(alpha).cgColor
         layer.fillColor     = nil
-        layer.lineWidth     = 0.7 + 0.5 * intensity
+        layer.lineWidth     = 2.7 + 0.5 * intensity
         layer.lineCap       = .round
         layer.lineJoin      = .round
         layer.shadowOpacity = 0          // ensure no leftover shadow

@@ -3,11 +3,21 @@ import AppKit
 
 struct MakeupSettings: Codable, Equatable {
     // MARK: - Lipstick
-    var lipstickNSColor: NSColor = .systemRed
+    var lipstickNSColor: NSColor = NSColor(
+        calibratedRed: 0.55,
+        green: 0.20,
+        blue: 0.23,
+        alpha: 1.0
+    )
     var lipstickOpacity: Double = 0.0
 
     // MARK: - Lip Liner
-    var lipLinerNSColor: NSColor = .systemRed
+    var lipLinerNSColor: NSColor = NSColor(
+        calibratedRed: 0.55,
+        green: 0.20,
+        blue: 1.23,
+        alpha: 1.0
+    )
     var lipLinerIntensity: Double = 0.0
 
     // MARK: - Brows
