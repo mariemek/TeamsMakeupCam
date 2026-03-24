@@ -37,3 +37,28 @@ Run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/TeamsMakeupCam.app
+
+#### 🧑‍💻 Run from Source (Developers)
+1. Clone the repo
+git clone https://github.com/mariemek/TeamsMakeupCam.git
+cd TeamsMakeupCam/TeamsMakeupCam
+2. Open in Xcode
+open TeamsMakeupCam.xcodeproj
+3. Run
+Select My Mac
+Click ▶️ Run
+⚙️ Requirements
+macOS
+Xcode (for development)
+Camera access enabled
+📸 Permissions
+
+Make sure camera access is enabled:
+
+System Settings → Privacy & Security → Camera
+
+🚀 Future Improvements
+App signing + notarization
+Remove Python dependency
+Improved filter realism
+Better UI/UX
