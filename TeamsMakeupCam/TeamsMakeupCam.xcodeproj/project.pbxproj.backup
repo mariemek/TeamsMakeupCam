@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		7D4D7631990E254F005083DC /* Pods_TeamsMakeupCam.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 92A8C282CFF5EF0A9AD357AB /* Pods_TeamsMakeupCam.framework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		6B93395D2F6F51CB00E9D24B /* Copy Files */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -22,6 +26,7 @@
 /* Begin PBXFileReference section */
 		6B33C08D2F64F57700127B61 /* TeamsMakeupCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TeamsMakeupCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6B9339602F6F55D200E9D24B /* face_landmarker.task */ = {isa = PBXFileReference; lastKnownFileType = file; name = face_landmarker.task; path = TeamsMakeupCam/Services/Resources/face_landmarker.task; sourceTree = "<group>"; };
+		92A8C282CFF5EF0A9AD357AB /* Pods_TeamsMakeupCam.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_TeamsMakeupCam.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C07D154A92482564554E8006 /* Pods-TeamsMakeupCam.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TeamsMakeupCam.debug.xcconfig"; path = "Target Support Files/Pods-TeamsMakeupCam/Pods-TeamsMakeupCam.debug.xcconfig"; sourceTree = "<group>"; };
 		F44249696F11BD1F4FB11993 /* Pods-TeamsMakeupCam.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TeamsMakeupCam.release.xcconfig"; path = "Target Support Files/Pods-TeamsMakeupCam/Pods-TeamsMakeupCam.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -53,6 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7D4D7631990E254F005083DC /* Pods_TeamsMakeupCam.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +96,7 @@
 		E27833251CE39554D22FB69D /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				92A8C282CFF5EF0A9AD357AB /* Pods_TeamsMakeupCam.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -300,7 +307,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
@@ -312,10 +319,6 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal",
-				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "TeamsMakeupCam needs camera access to apply real-time makeup filters.";
@@ -323,15 +326,6 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
-				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/cv2/.dylibs",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/_sounddevice_data/portaudio-binaries",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/google/_upb",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/numpy/.dylibs",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/mediapipe/python",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com..TeamsMakeupCam;
@@ -367,10 +361,6 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal",
-				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "TeamsMakeupCam needs camera access to apply real-time makeup filters.";
@@ -378,15 +368,6 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
-				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/cv2/.dylibs",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/_sounddevice_data/portaudio-binaries",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/google/_upb",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/numpy/.dylibs",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal/mediapipe/python",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com..TeamsMakeupCam;
