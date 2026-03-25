@@ -1,15 +1,9 @@
 import AVFoundation
 
-// MARK: - Protocol
-
 protocol FaceLandmarkServiceProtocol: AnyObject {
     func process(sampleBuffer: CMSampleBuffer, completion: @escaping (FaceLandmarks?) -> Void)
 }
 
-// MARK: - MediaPipe-backed implementation
-
-/// Sends frames to the localhost MediaPipe Face Landmarker sidecar and returns landmarks.
-/// The sidecar is launched automatically by SidecarLauncher on app startup.
 final class FaceLandmarkService: FaceLandmarkServiceProtocol {
 
     private let client: MediaPipeHelperClient

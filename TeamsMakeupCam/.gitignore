@@ -15,3 +15,8 @@ __pycache__/
 # Large helper (exclude from Git)
 Services/Resources/mediapipe_helper
 Services/Resources/face_landmarker.task
+
+# Build artifacts
+/dist/
+**/dist/
+mediapipe_helper
