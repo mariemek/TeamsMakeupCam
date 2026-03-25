@@ -7,12 +7,22 @@ import CoreImage
 import Foundation
 
 
+<<<<<<< HEAD
 final class MediaPipeHelperClient {
     private let session: URLSession
     private let endpoint = URL(string: "http://127.0.0.1:9001/v1/face_landmarks")!
 
     init(session: URLSession = .shared) {
         self.session = session
+=======
+    struct Configuration {
+        var endpoint: URL = URL(string: "http://127.0.0.1:9001/v1/face_landmarks")!
+        /// JPEG quality 0...1. Lower reduces latency.
+        var jpegQuality: CGFloat = 0.65
+        /// Optional request timeout. 1 s gives the sidecar room to respond
+        /// without causing visible lag on the 30-fps camera feed.
+        var timeout: TimeInterval = 1.0
+>>>>>>> 980b9c8 (Fix automatic sidecar launch so app works without Terminal)
     }
 
     enum ClientError: Error {

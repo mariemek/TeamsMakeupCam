@@ -115,7 +115,15 @@ final class SidecarLauncher {
     }
 
     private func home(_ relative: String) -> URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(relative)
+        // NSHomeDirectory() returns the sandbox container in sandboxed apps.
+        // Use getpwuid to get the real home directory instead.
+        let realHome: String
+        if let pw = getpwuid(getuid()), let dir = String(validatingUTF8: pw.pointee.pw_dir) {
+            realHome = dir
+        } else {
+            realHome = "/Users/\(NSUserName())"
+        }
+        return URL(fileURLWithPath: realHome).appendingPathComponent(relative)
     }
 
     // MARK: - Port check

@@ -63,7 +63,15 @@ except ImportError:
     sys.exit(1)
 
 # ── Model path ─────────────────────────────────────────────────────────────────
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker.task")
+# When bundled with PyInstaller (--onefile), data files are extracted to a
+# temporary directory referenced by sys._MEIPASS. Fall back to the script's
+# own directory for normal dev use.
+if getattr(sys, "frozen", False):
+    _base = sys._MEIPASS  # type: ignore[attr-defined]
+else:
+    _base = os.path.dirname(os.path.abspath(__file__))
+
+MODEL_PATH = os.path.join(_base, "face_landmarker.task")
 if not os.path.exists(MODEL_PATH):
     print(f"ERROR: Model file not found at: {MODEL_PATH}")
     print("Download it with:")

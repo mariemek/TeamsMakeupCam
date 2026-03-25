@@ -1,102 +1,35 @@
-≈
-# Python
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# Python / MediaPipe
 venv/
+.venv/
+env/
 __pycache__/
 *.pyc
 
-# MediaPipe sidecar
+# MediaPipe sidecar — large files, not committed to Git
+# Rebuild with: ./scripts/build_sidecar.sh
 mediapipe_helper/build/
 mediapipe_helper/dist/
 TeamsMakeupCam/TeamsMakeupCam/Services/Resources/mediapipe_helper
-
-# macOS
-.DS_Store
-
-# Xcode
-DerivedData/
-build/
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-xcuserdata/
-*.xcuserstate
-
-# Swift Package Manager
-.build/
-Packages/
-Package.resolved
-
-# Python
-venv/
-__pycache__/
-*.pyc
-
-# MediaPipe sidecar
-mediapipe_helper/build/
-mediapipe_helper/dist/
-
-# macOS
-.DS_Store<<<<<<< HEAD
-
-
-# Python
-=======
-# macOS
-.DS_Store
-
-# Xcode
-DerivedData/
-build/
-*.xcuserstate
-xcuserdata/
-
-# Python / MediaPipe
->>>>>>> f1a86c4f7b2eb6e2da9a81e87a447969f6dc0f60
-venv/
-__pycache__/
-*.pyc
-
-<<<<<<< HEAD
-# MediaPipe sidecar build
-mediapipe_helper/build/
-mediapipe_helper/dist/
-
-# macOS
-.DS_Store
-# Xcode
-DerivedData/
-build/
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-xcuserdata/
-*.xcuserstate
-
-# Swift Package Manager
-.build/
-Packages/
-Package.resolved
-
-# macOS
-.DS_Store
-
-# Python (for your mediapipe helper)
-__pycache__/
-*.pyc
-.venv/
-env/
-=======
-# Large helper (exclude from Git)
-Services/Resources/mediapipe_helper
-Services/Resources/face_landmarker.task
->>>>>>> f1a86c4f7b2eb6e2da9a81e87a447969f6dc0f60
+TeamsMakeupCam/TeamsMakeupCam/dist/

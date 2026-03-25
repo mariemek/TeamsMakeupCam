@@ -21,7 +21,7 @@ final class VideoFrameProcessor: NSObject, VideoFrameProcessorProtocol, CameraMa
     weak var delegate: VideoFrameProcessorDelegate?
 
     /// Current settings (e.g. smoothing strength); set from main thread, read on processing queue.
-    var currentMakeupSettings: MakeupSettings = MakeupSettings()
+    var currentMakeupSettings: MakeupSettings = .naturalPreset
 
     private let processingQueue = DispatchQueue(label: "TeamsMakeupCam.VideoProcessingQueue")
     private let faceLandmarkService: FaceLandmarkServiceProtocol

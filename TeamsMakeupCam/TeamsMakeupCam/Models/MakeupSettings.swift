@@ -183,6 +183,64 @@ extension NSColor {
     }
 }
 
+// MARK: - Built-in presets
+
+extension MakeupSettings {
+    /// All sliders at zero — a clean starting point.
+    static let naturalPreset = MakeupSettings(
+        lipstickNSColor:   NSColor(calibratedRed: 0.70, green: 0.35, blue: 0.30, alpha: 1),
+        lipstickOpacity:   0.14,
+        lipLinerNSColor:   NSColor(calibratedRed: 0.60, green: 0.25, blue: 0.22, alpha: 1),
+        lipLinerIntensity: 0.10,
+        browNSColor:       NSColor(red: 0.30, green: 0.20, blue: 0.12, alpha: 1),
+        browIntensity:     0.30,
+        browThickness:     0.20,
+        browArchAmount:    0.0,
+        browTailLift:      0.0,
+        browHeightOffset:  0.0,
+        browHorizontalScale: 0.0,
+        smoothingStrength: 0.15,
+        eyelinerIntensity: 0.25,
+        lashesIntensity:   0.10
+    )
+
+    /// Light colour with a touch of liner and lashes.
+    static let softGlamPreset = MakeupSettings(
+        lipstickNSColor:   NSColor(calibratedRed: 0.75, green: 0.22, blue: 0.28, alpha: 1),
+        lipstickOpacity:   0.24,
+        lipLinerNSColor:   NSColor(calibratedRed: 0.60, green: 0.15, blue: 0.20, alpha: 1),
+        lipLinerIntensity: 0.20,
+        browNSColor:       NSColor(red: 0.25, green: 0.16, blue: 0.10, alpha: 1),
+        browIntensity:     0.50,
+        browThickness:     0.35,
+        browArchAmount:    0.10,
+        browTailLift:      0.05,
+        browHeightOffset:  0.0,
+        browHorizontalScale: 0.0,
+        smoothingStrength: 0.30,
+        eyelinerIntensity: 0.50,
+        lashesIntensity:   0.40
+    )
+
+    /// Bolder colour, defined brows, stronger liner.
+    static let polishedPreset = MakeupSettings(
+        lipstickNSColor:   NSColor(calibratedRed: 0.65, green: 0.10, blue: 0.18, alpha: 1),
+        lipstickOpacity:   0.34,
+        lipLinerNSColor:   NSColor(calibratedRed: 0.50, green: 0.08, blue: 0.14, alpha: 1),
+        lipLinerIntensity: 0.28,
+        browNSColor:       NSColor(red: 0.20, green: 0.13, blue: 0.08, alpha: 1),
+        browIntensity:     0.70,
+        browThickness:     0.50,
+        browArchAmount:    0.15,
+        browTailLift:      0.10,
+        browHeightOffset:  0.0,
+        browHorizontalScale: 0.0,
+        smoothingStrength: 0.45,
+        eyelinerIntensity: 0.70,
+        lashesIntensity:   0.65
+    )
+}
+
 // MARK: - Equatable (NSColor doesn't auto-synthesize)
 
 extension MakeupSettings {

@@ -80,7 +80,7 @@ final class PreviewContainerView: NSView {
     private var lastRenderedExtent: CGRect?
 
     var landmarks: [FaceLandmarks] = []        { didSet { updateOverlay() } }
-    var makeupSettings: MakeupSettings = MakeupSettings() { didSet { updateOverlay() } }
+    var makeupSettings: MakeupSettings = .naturalPreset { didSet { updateOverlay() } }
     var showDebugLandmarks: Bool = false        { didSet { updateOverlay() } }
 
     // MARK: - Init
