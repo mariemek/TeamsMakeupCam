@@ -31,7 +31,7 @@ final class BrowRenderer {
     private var rightState = BrowState()
 
     /// EMA alpha — lower = smoother/more lag, higher = snappier/more jitter.
-    private let ema: CGFloat = 0.22
+    private let ema: CGFloat = 0.35
 
     // MARK: - Entry point
 
@@ -60,19 +60,13 @@ final class BrowRenderer {
         let leftPts  = face.leftEyebrow.map(convert)
         let rightPts = face.rightEyebrow.map(convert)
 
-        // Face centre x: used to orient each brow (which end is the tail).
-        func avgX(_ pts: [CGPoint]) -> CGFloat {
-            pts.isEmpty ? 0 : pts.map(\.x).reduce(0, +) / CGFloat(pts.count)
-        }
-        let faceCentreX = (avgX(leftPts) + avgX(rightPts)) / 2
-
         let path = CGMutablePath()
 
         if leftPts.count >= 10 {
-            drawBrow(leftPts,  faceCentreX: faceCentreX, state: &leftState,  to: path)
+            drawBrow(leftPts,  isLeftBrow: true,  state: &leftState,  to: path)
         }
         if rightPts.count >= 10 {
-            drawBrow(rightPts, faceCentreX: faceCentreX, state: &rightState, to: path)
+            drawBrow(rightPts, isLeftBrow: false, state: &rightState, to: path)
         }
 
         layer.path = path
@@ -100,7 +94,7 @@ final class BrowRenderer {
 
     private func drawBrow(
         _ rawPoints: [CGPoint],
-        faceCentreX: CGFloat,
+        isLeftBrow: Bool,
         state: inout BrowState,
         to path: CGMutablePath
     ) {
@@ -116,20 +110,18 @@ final class BrowRenderer {
         lower.sort { $0.x < $1.x }
 
         // ── 3. Orient both arcs head (inner corner) → tail (outer corner) ─────
-        // After sorting ascending: upper[0] = leftmost, upper[4] = rightmost.
+        // The subject's LEFT brow is on the camera's right side → larger x in
+        // layer space. After sort: [0]=inner/nasal (smaller x), [4]=outer/temple
+        // (larger x) → tail at high x, no reversal needed.
         //
-        // The TAIL is always the endpoint that is FARTHER from the face centre
-        // (it's at the temple — outer corner).
-        // The HEAD is always the endpoint that is CLOSER to the face centre
-        // (it's near the nose bridge — inner corner).
+        // The subject's RIGHT brow is on the camera's left side → smaller x.
+        // After sort: [0]=outer/temple (smallest x), [4]=inner/nasal (larger x)
+        // → reverse so [0]=inner, [4]=outer/tail.
         //
-        // Comparing endpoint distances is more robust than comparing avgX to
-        // faceCentreX, because it works regardless of mirroring or camera setup.
-        let distLow  = abs(upper.first!.x - faceCentreX)  // distance of leftmost from centre
-        let distHigh = abs(upper.last!.x  - faceCentreX)  // distance of rightmost from centre
-        let tailAtHighX = distHigh >= distLow  // tail is at the end farther from centre
+        // Using isLeftBrow (fixed side) is more robust than a dynamic faceCentreX
+        // which can shift when the head tilts and cause the tail to flip mid-frame.
+        let tailAtHighX = isLeftBrow
         if !tailAtHighX {
-            // Tail is at the leftmost (low-x) end → reverse so tail lands at index 4
             upper.reverse()
             lower.reverse()
         }
@@ -158,21 +150,28 @@ final class BrowRenderer {
         guard !upperCurve.isEmpty, !lowerCurve.isEmpty else { return }
 
         // ── 7. Pointed tail tip ────────────────────────────────────────────────
+        // shapeLower no longer converges at the tail, so tailLower is the actual
+        // lower-arc outer endpoint — meaningfully different from tailUpper.
+        // We use straight lines to avoid the degenerate quad-curve spike that
+        // occurred when tailLower ≈ tailUpper (the old shapeLower forced them
+        // together, making the quad curves collapse into a tiny self-intersecting
+        // loop visible as a sharp spike).
         let tailUpper = upperCurve.last!
         let tailLower = lowerCurve.last!
         let outDir: CGFloat = tailAtHighX ? 1 : -1
-        let ext = abs(upper.last!.x - upper.first!.x) * 0.04
+        let ext = abs(upper.last!.x - upper.first!.x) * 0.08
         let tailTip = CGPoint(
             x: (tailUpper.x + tailLower.x) / 2 + outDir * ext,
-            y: tailUpper.y * 0.75 + tailLower.y * 0.25
+            y: tailUpper.y * 0.70 + tailLower.y * 0.30
         )
 
         // ── 8. Trace closed outline ────────────────────────────────────────────
         path.move(to: upperCurve[0])
         for pt in upperCurve.dropFirst() { path.addLine(to: pt) }
 
-        path.addQuadCurve(to: tailTip,   control: tailUpper)
-        path.addQuadCurve(to: tailLower, control: tailTip)
+        // Sharp pointed tail — simple lines, no quad curves
+        path.addLine(to: tailTip)
+        path.addLine(to: tailLower)
 
         for pt in lowerCurve.dropLast().reversed() { path.addLine(to: pt) }
 
@@ -186,27 +185,23 @@ final class BrowRenderer {
 
     // MARK: - Lower arc shaping
 
-    /// Uses the ACTUAL MediaPipe lower arc positions to preserve the user's
-    /// real brow shape. Only tapers toward the upper arc at the two extremes
-    /// (head = inner corner, tail = outer tip) so the brow closes cleanly.
+    /// Tapers the lower arc toward the upper arc only at the inner (head) corner
+    /// so the brow starts thin at the nose-bridge end.
     ///
-    /// blend = 1.0  →  real MediaPipe lower position  (brow body is unchanged)
-    /// blend = 0.0  →  converges to upper arc         (tip closes to a point)
+    /// The outer (tail) end is NOT converged here — the tail tip is handled
+    /// explicitly in drawBrow with a proper pointed extension. Converging the
+    /// lower arc at the tail as well caused tailLower ≈ tailUpper, which made
+    /// the quad-curve tail construction degenerate into a spike.
+    ///
+    /// blend = 0.0 at head → lower arc converges to upper (thin inner corner)
+    /// blend = 1.0 past 30% → full brow thickness preserved to the outer end
     private func shapeLower(_ lower: [CGPoint], against upper: [CGPoint]) -> [CGPoint] {
         guard lower.count == upper.count else { return lower }
 
         return zip(lower, upper).enumerated().map { i, pair in
             let (lo, up) = pair
             let t = CGFloat(i) / CGFloat(max(lower.count - 1, 1))
-
-            // Open from 0→1 over the first 28% (thin inner head)
-            let headOpen  = smoothStep(0.0, 0.28, t)
-            // Close from 1→0 over the last 28% (converge to pointed tail)
-            let tailClose = 1.0 - smoothStep(0.72, 1.0, t)
-            let blend = headOpen * tailClose
-
-            // blend=1 in the brow body → real MediaPipe lower landmark
-            // blend=0 at tips → converges to upper arc (clean closure)
+            let blend = smoothStep(0.0, 0.30, t)
             return CGPoint(
                 x: up.x + (lo.x - up.x) * blend,
                 y: up.y + (lo.y - up.y) * blend
