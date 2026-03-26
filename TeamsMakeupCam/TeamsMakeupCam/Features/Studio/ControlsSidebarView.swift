@@ -52,29 +52,6 @@ struct ControlsSidebarView: View {
                     systemImage: "slider.horizontal.3",
                     value: $settings.browIntensity
                 )
-                intensityRow(
-                    label: "Thickness",
-                    systemImage: "slider.horizontal.3",
-                    value: $settings.browThickness
-                )
-                signedSliderRow(
-                    label: "Arch",
-                    systemImage: "slider.horizontal.3",
-                    value: $settings.browArchAmount,
-                    range: -1...1
-                )
-                signedSliderRow(
-                    label: "Tail Lift",
-                    systemImage: "slider.horizontal.3",
-                    value: $settings.browTailLift,
-                    range: -1...1
-                )
-                signedSliderRow(
-                    label: "Height",
-                    systemImage: "slider.horizontal.3",
-                    value: $settings.browHeightOffset,
-                    range: -1...1
-                )
                 .padding(.bottom, 8)
 
                 Divider().padding(.horizontal, 16)

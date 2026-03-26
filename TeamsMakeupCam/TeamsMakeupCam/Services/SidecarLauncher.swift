@@ -49,27 +49,23 @@ final class SidecarLauncher {
         do {
             try proc.run()
             process = proc
-<<<<<<< HEAD
-            print("SidecarLauncher: launched pid=\(proc.processIdentifier)")
-=======
             print("SidecarLauncher: ✅ launched pid=\(proc.processIdentifier)")
 
-            // PyInstaller --onefile binaries decompress themselves on first run (120 MB),
-            // which can take 15–30 s. Give the server generous time to come up.
+            // PyInstaller --onefile binaries decompress on first run (can take 15–30 s).
+            // Poll until the server is actually listening before declaring success.
             waitForServerStartup(timeout: 30.0) { [weak self] started in
                 guard let self else { return }
                 if started {
                     print("SidecarLauncher: ✅ helper is listening on port \(self.port)")
                 } else {
-                    print("SidecarLauncher: ❌ helper did not start listening on port \(self.port) within timeout")
+                    print("SidecarLauncher: ❌ helper did not start on port \(self.port) within timeout")
                     if let proc = self.process, proc.isRunning {
-                        print("SidecarLauncher: process is still running but server is not reachable yet")
+                        print("SidecarLauncher: process still running but server not reachable yet")
                     } else {
                         print("SidecarLauncher: process is no longer running")
                     }
                 }
             }
->>>>>>> 980b9c8 (Fix automatic sidecar launch so app works without Terminal)
         } catch {
             print("SidecarLauncher: failed to launch helper: \(error)")
         }
@@ -92,81 +88,6 @@ final class SidecarLauncher {
         stop()
     }
 
-<<<<<<< HEAD
-=======
-    // MARK: - Launch config
-
-    private struct LaunchConfig {
-        let executable: URL
-        let workingDirectory: URL
-        let arguments: [String]
-    }
-
-    private func findSidecar() -> LaunchConfig? {
-
-        // ── 1. Bundled binary inside the .app (Release distribution) ──────────
-        //       Build: PyInstaller --onefile → place binary at
-        //              YourApp.app/Contents/MacOS/mediapipe_helper
-        let macOSDir = Bundle.main.bundleURL
-            .appendingPathComponent("Contents")
-            .appendingPathComponent("MacOS")
-        let bundledBinary = macOSDir.appendingPathComponent("mediapipe_helper")
-
-        if FileManager.default.fileExists(atPath: bundledBinary.path) {
-            print("SidecarLauncher: found bundled binary at \(bundledBinary.path)")
-            return LaunchConfig(
-                executable: bundledBinary,
-                workingDirectory: macOSDir,
-                arguments: []
-            )
-        }
-
-        // ── 2. Dev binary (PyInstaller output in local dev folder) ─────────────
-        //       ~/mediapipe-helper/dist/mediapipe_helper
-        let devDist = home("mediapipe-helper/dist/mediapipe_helper")
-        if FileManager.default.fileExists(atPath: devDist.path) {
-            print("SidecarLauncher: found dev binary at \(devDist.path)")
-            return LaunchConfig(
-                executable: devDist,
-                workingDirectory: devDist.deletingLastPathComponent(),
-                arguments: []
-            )
-        }
-
-        // ── 3. Dev Python script (no build needed, requires python3 + deps) ────
-        let devRoot = home("mediapipe-helper")
-        let pyScript = devRoot.appendingPathComponent("mediapipe_helper.py")
-        let model    = devRoot.appendingPathComponent("face_landmarker.task")
-        let python3  = URL(fileURLWithPath: python3Path)
-
-        if FileManager.default.fileExists(atPath: pyScript.path),
-           FileManager.default.fileExists(atPath: model.path),
-           FileManager.default.fileExists(atPath: python3.path) {
-
-            print("SidecarLauncher: found dev script at \(pyScript.path)")
-            return LaunchConfig(
-                executable: python3,
-                workingDirectory: devRoot,
-                arguments: [pyScript.path]
-            )
-        }
-
-        return nil
-    }
-
-    private func home(_ relativePath: String) -> URL {
-        // NSHomeDirectory() returns the sandbox container in sandboxed apps,
-        // NOT the real user home (/Users/username). Use getpwuid to get the
-        // actual home directory regardless of sandbox state.
-        let realHome: String
-        if let pw = getpwuid(getuid()), let dir = String(validatingUTF8: pw.pointee.pw_dir) {
-            realHome = dir
-        } else {
-            realHome = "/Users/\(NSUserName())"
-        }
-        return URL(fileURLWithPath: realHome).appendingPathComponent(relativePath)
-    }
-
     // MARK: - Startup wait
 
     private func waitForServerStartup(timeout: TimeInterval, completion: @escaping (Bool) -> Void) {
@@ -177,25 +98,20 @@ final class SidecarLauncher {
                 completion(true)
                 return
             }
-
             if Date() >= deadline {
                 completion(false)
                 return
             }
-
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
                 poll()
             }
         }
 
-        DispatchQueue.global().async {
-            poll()
-        }
+        DispatchQueue.global().async { poll() }
     }
 
     // MARK: - Port check
 
->>>>>>> 980b9c8 (Fix automatic sidecar launch so app works without Terminal)
     private func isPortInUse(_ port: Int) -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/lsof")

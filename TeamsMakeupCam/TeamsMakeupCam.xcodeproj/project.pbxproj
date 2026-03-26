@@ -27,12 +27,9 @@
 /* Begin PBXFileReference section */
 		6B33C08D2F64F57700127B61 /* TeamsMakeupCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TeamsMakeupCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6B9339602F6F55D200E9D24B /* face_landmarker.task */ = {isa = PBXFileReference; lastKnownFileType = file; name = face_landmarker.task; path = TeamsMakeupCam/Services/Resources/face_landmarker.task; sourceTree = "<group>"; };
-<<<<<<< HEAD
+		6BFF00002F7A00001FF00000 /* mediapipe_helper */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mediapipe_helper; path = TeamsMakeupCam/Services/Resources/mediapipe_helper; sourceTree = "<group>"; };
 		C07D154A92482564554E8006 /* Pods-TeamsMakeupCam.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TeamsMakeupCam.debug.xcconfig"; path = "Target Support Files/Pods-TeamsMakeupCam/Pods-TeamsMakeupCam.debug.xcconfig"; sourceTree = "<group>"; };
 		F44249696F11BD1F4FB11993 /* Pods-TeamsMakeupCam.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-TeamsMakeupCam.release.xcconfig"; path = "Target Support Files/Pods-TeamsMakeupCam/Pods-TeamsMakeupCam.release.xcconfig"; sourceTree = "<group>"; };
-=======
-		6BFF00002F7A00001FF00000 /* mediapipe_helper */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mediapipe_helper; path = TeamsMakeupCam/Services/Resources/mediapipe_helper; sourceTree = "<group>"; };
->>>>>>> 980b9c8 (Fix automatic sidecar launch so app works without Terminal)
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -309,28 +306,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-<<<<<<< HEAD
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal",
-				);
-=======
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
->>>>>>> 980b9c8 (Fix automatic sidecar launch so app works without Terminal)
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "TeamsMakeupCam needs camera access to apply real-time makeup filters.";
@@ -371,22 +348,6 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
-<<<<<<< HEAD
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
-				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
-				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
-				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
-				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
-				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
-				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
-				ENABLE_RESOURCE_ACCESS_USB = NO;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/TeamsMakeupCam/dist/mediapipe_helper/_internal",
-				);
-=======
->>>>>>> 980b9c8 (Fix automatic sidecar launch so app works without Terminal)
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "TeamsMakeupCam needs camera access to apply real-time makeup filters.";

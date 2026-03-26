@@ -5,13 +5,11 @@ import SwiftUI
 /// Also requires `StudioViewModel` as an environment object for camera selection.
 struct ControlsSidebarView: View {
     @EnvironmentObject private var viewModel: StudioViewModel
+    @EnvironmentObject private var presetStore: PresetStore
     @Binding var settings: MakeupSettings
 
-    private let presets: [(name: String, value: MakeupSettings)] = [
-        ("Natural", .naturalPreset),
-        ("Soft Glam", .softGlamPreset),
-        ("Polished", .polishedPreset)
-    ]
+    @State private var showSaveSheet = false
+    @State private var showPresetsPanel = false
 
     var body: some View {
         ScrollView {
@@ -24,9 +22,9 @@ struct ControlsSidebarView: View {
 
                 Divider().padding(.horizontal, 16)
 
-                // ── Presets ──────────────────────────────────────────────────
-                sectionHeader("Presets")
-                presetButtons
+                // ── My Look ──────────────────────────────────────────────────
+                sectionHeader("My Look")
+                presetActionsRow
                     .padding(.bottom, 12)
 
                 Divider().padding(.horizontal, 16)
@@ -101,6 +99,14 @@ struct ControlsSidebarView: View {
         }
         .frame(minWidth: 240, idealWidth: 260)
         .background(.regularMaterial)
+        .sheet(isPresented: $showSaveSheet) {
+            SavePresetSheet(settings: settings, isPresented: $showSaveSheet)
+                .environmentObject(presetStore)
+        }
+        .sheet(isPresented: $showPresetsPanel) {
+            PresetsListView(currentSettings: $settings, isPresented: $showPresetsPanel)
+                .environmentObject(presetStore)
+        }
     }
 
     // MARK: - Camera
@@ -137,22 +143,53 @@ struct ControlsSidebarView: View {
         .padding(.vertical, 5)
     }
 
-    // MARK: - Preset buttons
+    // MARK: - Preset actions row
 
-    private var presetButtons: some View {
-        HStack(spacing: 8) {
-            ForEach(presets, id: \.name) { preset in
-                Button(preset.name) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        settings = preset.value
-                    }
+    private var presetActionsRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Active preset name (if any)
+            if let active = presetStore.activePreset {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.green).frame(width: 7, height: 7)
+                    Text(active.name)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    showPresetsPanel = true
+                } label: {
+                    Label("Load", systemImage: "list.bullet.rectangle")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+
+                Button {
+                    showSaveSheet = true
+                } label: {
+                    Label("Save", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Spacer()
+
+                Button {
+                    settings = MakeupSettings()
+                    presetStore.setActive(nil)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Reset to defaults")
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
     }
 
     // MARK: - Row builders
@@ -228,10 +265,43 @@ struct ControlsSidebarView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
     }
+
+    @ViewBuilder
+    private func signedSliderRow(
+        label: String,
+        systemImage: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .frame(width: 18)
+                    .foregroundStyle(.secondary)
+
+                Text(label)
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(String(format: "%+.2f", value.wrappedValue))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: 36, alignment: .trailing)
+            }
+
+            Slider(value: value, in: range)
+                .padding(.leading, 28)
+                .tint(.primary.opacity(0.6))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
 }
 
 #Preview {
-    ControlsSidebarView(settings: .constant(.softGlamPreset))
+    ControlsSidebarView(settings: .constant(MakeupSettings()))
         .environmentObject(StudioViewModel())
+        .environmentObject(PresetStore())
         .frame(height: 680)
 }

@@ -4,11 +4,7 @@
    <FileRef
       location = "group:TeamsMakeupCam.xcodeproj">
    </FileRef>
-<<<<<<< HEAD
    <FileRef
       location = "group:Pods/Pods.xcodeproj">
    </FileRef>
-=======
-
->>>>>>> 980b9c8 (Fix automatic sidecar launch so app works without Terminal)
 </Workspace>
