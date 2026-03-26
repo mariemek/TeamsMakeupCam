@@ -132,15 +132,23 @@ RIGHT_EYE = [
 # Together they define the real brow outline on the user's face.
 
 # Left eyebrow (subject's left; screen-right in mirrored feed)
+#
+# MediaPipe canonical positions (y=0 at top in native coords):
+#   300,293,334,296,336 sit HIGHER on the face (closer to forehead) → upper arc
+#   276,283,282,295,285 sit LOWER on the face (closer to eye)       → lower arc
 LEFT_EYEBROW = [
-    276, 283, 282, 295, 285,   # upper arc (top edge)
-    300, 293, 334, 296, 336    # lower arc (bottom edge)
+    300, 293, 334, 296, 336,   # upper arc (top edge, closer to forehead)
+    276, 283, 282, 295, 285,   # lower arc (bottom edge, closer to eye)
 ]
 
 # Right eyebrow (subject's right; screen-left in mirrored feed)
+#
+# MediaPipe canonical positions:
+#   70,63,105,66,107 sit HIGHER on the face (closer to forehead) → upper arc
+#   46,53,52,65,55   sit LOWER on the face (closer to eye)       → lower arc
 RIGHT_EYEBROW = [
-    46, 53, 52, 65, 55,    # upper arc (top edge)
-    70, 63, 105, 66, 107   # lower arc (bottom edge)
+    70, 63, 105, 66, 107,   # upper arc (top edge, closer to forehead)
+    46, 53, 52, 65, 55,     # lower arc (bottom edge, closer to eye)
 ]
 
 # Face oval — 36-point jaw + hairline contour
