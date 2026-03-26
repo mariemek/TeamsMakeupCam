@@ -121,16 +121,34 @@ RIGHT_EYE = [
     173, 157, 158, 159, 160, 161, 246, 33         # upper lid
 ]
 
+# Eyebrow landmarks — upper arc (pts 0-4) then lower arc (pts 5-9).
+#
+# IMPORTANT: These indices follow MediaPipe's mesh TOPOLOGY, not screen
+# x-order. The Swift renderer sorts each arc by screen-x to get proper
+# left→right spatial ordering, then uses face-centre to orient head vs tail.
+#
+# Upper arc = the top visible edge of the brow.
+# Lower arc = the bottom visible edge of the brow.
+# Together they define the real brow outline on the user's face.
+
 # Left eyebrow (subject's left; screen-right in mirrored feed)
+#
+# MediaPipe canonical positions (y=0 at top in native coords):
+#   300,293,334,296,336 sit HIGHER on the face (closer to forehead) → upper arc
+#   276,283,282,295,285 sit LOWER on the face (closer to eye)       → lower arc
 LEFT_EYEBROW = [
-    276, 283, 282, 295, 285,   # upper arch
-    300, 293, 334, 296, 336    # lower edge
+    300, 293, 334, 296, 336,   # upper arc (top edge, closer to forehead)
+    276, 283, 282, 295, 285,   # lower arc (bottom edge, closer to eye)
 ]
 
 # Right eyebrow (subject's right; screen-left in mirrored feed)
+#
+# MediaPipe canonical positions:
+#   70,63,105,66,107 sit HIGHER on the face (closer to forehead) → upper arc
+#   46,53,52,65,55   sit LOWER on the face (closer to eye)       → lower arc
 RIGHT_EYEBROW = [
-    46, 53, 52, 65, 55,    # upper arch
-    70, 63, 105, 66, 107   # lower edge
+    70, 63, 105, 66, 107,   # upper arc (top edge, closer to forehead)
+    46, 53, 52, 65, 55,     # lower arc (bottom edge, closer to eye)
 ]
 
 # Face oval — 36-point jaw + hairline contour
