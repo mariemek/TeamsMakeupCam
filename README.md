@@ -102,12 +102,6 @@ open TeamsMakeupCam.xcodeproj
 
 ---
 
-## 👩‍💻 Author
-
-Made by Marie K
-
----
-
 ## ⭐️ Support
 
 If you like this project:
