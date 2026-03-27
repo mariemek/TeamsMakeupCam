@@ -56,21 +56,19 @@ final class PreviewContainerView: NSView {
     private let contentLayer  = CALayer()
     private let lipstickLayer = CAShapeLayer()
     private let lipLinerLayer = CAShapeLayer()
-    private let browLayer     = CAShapeLayer()
     private let eyelinerLayer = CAShapeLayer()
     private let lashesLayer   = CAShapeLayer()
     private let debugOverlayLayer = CAShapeLayer()
 
     private var allLayers: [CALayer] {
         [previewLayer, contentLayer, lashesLayer, eyelinerLayer,
-         lipstickLayer, lipLinerLayer, browLayer, debugOverlayLayer]
+         lipstickLayer, lipLinerLayer, debugOverlayLayer]
     }
 
     // MARK: - Renderers
 
     private let lipstickRenderer  = LipstickRenderer()
     private let lipLinerRenderer  = LipLinerRenderer()
-    private let browRenderer      = BrowRenderer()
     private let eyelinerRenderer  = EyelinerRenderer()
     private let lashesRenderer    = LashesRenderer()
 
@@ -80,7 +78,7 @@ final class PreviewContainerView: NSView {
     private var lastRenderedExtent: CGRect?
 
     var landmarks: [FaceLandmarks] = []        { didSet { updateOverlay() } }
-    var makeupSettings: MakeupSettings = .naturalPreset { didSet { updateOverlay() } }
+    var makeupSettings = MakeupSettings() { didSet { updateOverlay() } }
     var showDebugLandmarks: Bool = false        { didSet { updateOverlay() } }
 
     // MARK: - Init
@@ -124,7 +122,6 @@ final class PreviewContainerView: NSView {
         rootLayer.addSublayer(eyelinerLayer)
         rootLayer.addSublayer(lipstickLayer)
         rootLayer.addSublayer(lipLinerLayer)
-        rootLayer.addSublayer(browLayer)
         rootLayer.addSublayer(debugOverlayLayer)
     }
 
@@ -203,12 +200,6 @@ final class PreviewContainerView: NSView {
             useProcessedFrameCoordinates: useProcessed,
             contentExtent: lastRenderedExtent, viewBounds: bounds)
 
-        browRenderer.updateBrowLayer(
-            browLayer, with: landmarks, in: previewLayer,
-            settings: makeupSettings,
-            useProcessedFrameCoordinates: useProcessed,
-            contentExtent: lastRenderedExtent, viewBounds: bounds)
-
         eyelinerRenderer.updateEyelinerLayer(
             eyelinerLayer, with: landmarks, in: previewLayer,
             settings: makeupSettings,
@@ -226,8 +217,6 @@ final class PreviewContainerView: NSView {
             for face in landmarks {
                 addPolyline(face.outerLips,    to: path, closed: true)
                 addPolyline(face.innerLips,    to: path, closed: true)
-                addPolyline(face.leftEyebrow,  to: path, closed: false)
-                addPolyline(face.rightEyebrow, to: path, closed: false)
                 addPolyline(face.leftEye,      to: path, closed: true)
                 addPolyline(face.rightEye,     to: path, closed: true)
                 addPolyline(face.faceContour,  to: path, closed: false)
@@ -241,7 +230,6 @@ final class PreviewContainerView: NSView {
     private func clearAllLayers() {
         lipstickLayer.path     = nil
         lipLinerLayer.path     = nil
-        browLayer.path         = nil
         eyelinerLayer.path     = nil
         lashesLayer.path       = nil
         debugOverlayLayer.path = nil

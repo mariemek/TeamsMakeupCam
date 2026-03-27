@@ -10,10 +10,6 @@ struct FaceLandmarks: Decodable {
     }
     var innerLips: [CGPoint] = []
 
-    // MARK: - Brows
-    var leftEyebrow: [CGPoint] = []
-    var rightEyebrow: [CGPoint] = []
-
     // MARK: - Eyes
     var leftEye: [CGPoint] = []
     var rightEye: [CGPoint] = []
@@ -44,8 +40,6 @@ struct FaceLandmarks: Decodable {
         case lips
         case outerLips
         case innerLips
-        case leftEyebrow
-        case rightEyebrow
         case leftEye
         case rightEye
         case leftUpperEyelidRaw
@@ -72,14 +66,6 @@ struct FaceLandmarks: Decodable {
 
         self.innerLips = Self.decodePoints(
             try container.decodeIfPresent([[CGFloat]].self, forKey: .innerLips) ?? []
-        )
-
-        self.leftEyebrow = Self.decodePoints(
-            try container.decodeIfPresent([[CGFloat]].self, forKey: .leftEyebrow) ?? []
-        )
-
-        self.rightEyebrow = Self.decodePoints(
-            try container.decodeIfPresent([[CGFloat]].self, forKey: .rightEyebrow) ?? []
         )
 
         self.leftEye = Self.decodePoints(
