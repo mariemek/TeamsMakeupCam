@@ -11,11 +11,11 @@ enum LashStyle: String, CaseIterable, Codable {
 
 // MARK: - PNGLashesRenderer
 //
-// Overlays a lash-strip PNG image on each eye.
+// Overlays a lash-strip PNG image on each eye using multiply blend mode.
 //
-// The strip is loaded from the asset catalog ("lashes").  If the PNG has a
-// white background it is automatically converted to transparent (white → alpha).
-// If the asset is missing, a procedural fallback is generated at init.
+// The strip is loaded from the asset catalog ("lashes").  Multiply compositing
+// makes the white background invisible (white × anything = anything) while dark
+// lash strands darken the underlying skin naturally.  No pixel manipulation needed.
 //
 // Each frame the renderer measures the upper eyelid from smoothed landmarks and
 // maps the image onto the eye with position / scale / rotation.  The left eye
@@ -41,7 +41,7 @@ final class PNGLashesRenderer {
 
     /// The lash-strip image (outer corner on the LEFT side of the image).
     private let lashImage: CGImage
-    /// Image size in points for layer bounds.
+    /// Image size in POINTS for layer bounds (matches NSImage.size).
     private let imageSize: CGSize
 
     // MARK: - Init
@@ -49,12 +49,9 @@ final class PNGLashesRenderer {
     init() {
         // Try loading the bundled PNG from the asset catalog.
         if let nsImage = NSImage(named: "lashes"),
-           let tiff = nsImage.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiff),
-           let cg = bitmap.cgImage {
-            // The reference image has a white background — convert white → transparent.
-            self.lashImage = Self.whiteToAlpha(cg)
-            self.imageSize = CGSize(width: cg.width, height: cg.height)
+           let cg = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            self.lashImage = cg
+            self.imageSize = nsImage.size  // points — DPI-independent
         } else {
             // Fallback: procedurally generate a lash strip.
             let w: CGFloat = 512, h: CGFloat = 180
@@ -65,14 +62,26 @@ final class PNGLashesRenderer {
         containerLayer.backgroundColor = NSColor.clear.cgColor
         containerLayer.masksToBounds   = false
 
+        let scaleFactor = NSScreen.main?.backingScaleFactor ?? 2.0
+
         for lashLayer in [leftLashLayer, rightLashLayer] {
             lashLayer.contents        = lashImage
             lashLayer.contentsGravity = .resizeAspect
+            lashLayer.contentsScale   = scaleFactor
             lashLayer.isHidden        = true
             lashLayer.masksToBounds   = false
-            // Anchor at the bottom-center: the baseline of the lash strip
-            // sits on the eyelid, and strands extend upward.
-            lashLayer.anchorPoint     = CGPoint(x: 0.5, y: 1.0)
+
+            // Multiply blend: white → invisible, dark lash strands → darken skin.
+            // This handles the white PNG background without any pixel manipulation.
+            lashLayer.compositingFilter = "multiplyBlendMode"
+
+            // Anchor at the top-center of the layer.
+            // On macOS (y-up), CGImage contents render with the image's top row
+            // at the top of the visual area.  The lash PNG has roots at the top
+            // of the image → roots appear at the top of the layer (high y).
+            // anchorPoint (0.5, 1.0) = top-center → roots sit at the position point.
+            lashLayer.anchorPoint = CGPoint(x: 0.5, y: 1.0)
+
             containerLayer.addSublayer(lashLayer)
         }
     }
@@ -103,7 +112,7 @@ final class PNGLashesRenderer {
         let rightEyelid = face.rightUpperEyelid.isEmpty ? face.rightEye : face.rightUpperEyelid
 
         // flipImage: true for the left eye so the outer corner (fuller end)
-        // lands on the lateral side of each eye.
+        // lands on the lateral side of each eye after the container mirror.
         updateEye(layer: leftLashLayer,  state: &leftSmooth,
                   eyelid: leftEyelid,  fullEye: face.leftEye,
                   convert: convert, intensity: intensity, flipImage: true)
@@ -146,10 +155,10 @@ final class PNGLashesRenderer {
         let midX = (leftPt.x + rightPt.x) / 2
         let midY = (leftPt.y + rightPt.y) / 2
 
-        // Angle of the lash line (inner→outer).
+        // Angle of the lash line.
         let angle = atan2(rightPt.y - leftPt.y, rightPt.x - leftPt.x)
 
-        // Eye center — used to shift lashes upward (away from pupil).
+        // Eye center — used to nudge lashes toward the eyelid and away from pupil.
         let allPts = fullEye.map(convert)
         let eyeCenterY: CGFloat
         if allPts.count >= 3 {
@@ -163,15 +172,16 @@ final class PNGLashesRenderer {
         let perpY =  cos(angle)
         let testPtY = midY + perpY * 5
         let awaySign: CGFloat = (testPtY < eyeCenterY) ? 1 : -1
-        let verticalOffset = eyeWidth * 0.04 * awaySign
+        // Small offset so the lash roots sit right on the lash line.
+        let verticalOffset = eyeWidth * 0.02 * awaySign
 
         let posX = midX + perpX * verticalOffset
         let posY = midY + perpY * verticalOffset
 
         let smoothed = state.update(x: posX, y: posY, width: eyeWidth, angle: angle)
 
-        // Scale image to match eye width (slight overshoot covers the corners).
-        let scaleX = smoothed.width * 1.15 / imageSize.width
+        // Scale: image width → eye width with slight overshoot for full coverage.
+        let scaleX = smoothed.width * 1.10 / imageSize.width
         let scaleY = scaleX
         let flipScaleX = flipImage ? -scaleX : scaleX
 
@@ -191,67 +201,10 @@ final class PNGLashesRenderer {
         CATransaction.commit()
     }
 
-    // MARK: - White-to-alpha conversion
-    //
-    // Converts a white-background PNG into a transparency-background image.
-    // For each pixel: alpha = 1 − luminance.  Dark lash strands stay opaque,
-    // white background becomes fully transparent.
-
-    private static func whiteToAlpha(_ source: CGImage) -> CGImage {
-        let w = source.width, h = source.height
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bytesPerRow = w * 4
-        guard let ctx = CGContext(
-            data: nil, width: w, height: h,
-            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return source }
-
-        // Draw the source image into our writable context.
-        ctx.draw(source, in: CGRect(x: 0, y: 0, width: w, height: h))
-
-        guard let data = ctx.data else { return source }
-        let pixels = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
-
-        for i in 0..<(w * h) {
-            let offset = i * 4
-            let r = CGFloat(pixels[offset])     / 255.0
-            let g = CGFloat(pixels[offset + 1]) / 255.0
-            let b = CGFloat(pixels[offset + 2]) / 255.0
-
-            // Luminance (perceived brightness).
-            let lum = 0.299 * r + 0.587 * g + 0.114 * b
-
-            // New alpha: dark pixels → opaque, light pixels → transparent.
-            let newAlpha = max(0, min(1, 1.0 - lum))
-
-            // Premultiplied alpha: RGB values are multiplied by alpha.
-            let a = UInt8(newAlpha * 255)
-            if newAlpha < 0.01 {
-                pixels[offset]     = 0
-                pixels[offset + 1] = 0
-                pixels[offset + 2] = 0
-                pixels[offset + 3] = 0
-            } else {
-                // Darken the lash color slightly for richness.
-                let darkR = UInt8(min(255, r * 0.15 * newAlpha * 255))
-                let darkG = UInt8(min(255, g * 0.12 * newAlpha * 255))
-                let darkB = UInt8(min(255, b * 0.14 * newAlpha * 255))
-                pixels[offset]     = darkR
-                pixels[offset + 1] = darkG
-                pixels[offset + 2] = darkB
-                pixels[offset + 3] = a
-            }
-        }
-
-        return ctx.makeImage() ?? source
-    }
-
     // MARK: - Procedural fallback
     //
     // Generates a lash strip if the asset catalog image is missing.
-    // Draws curved strands: fuller on the right (outer corner), tapering left.
+    // Dark strands on transparent background — no white-to-alpha needed.
 
     private static func generateLashStrip(width: CGFloat, height: CGFloat) -> CGImage {
         let w = Int(width), h = Int(height)
