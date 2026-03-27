@@ -2,16 +2,14 @@ import SwiftUI
 
 @main
 struct TeamsMakeupCamApp: App {
-    @StateObject private var viewModel = StudioViewModel()
-
-    init() {
-        SidecarLauncher.shared.start()
-    }
+    @StateObject private var studioViewModel = StudioViewModel()
+    @StateObject private var presetStore = PresetStore()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(viewModel)
+            MainStudioView()
+                .environmentObject(studioViewModel)
+                .environmentObject(presetStore)
         }
     }
 }

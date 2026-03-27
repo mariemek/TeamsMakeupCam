@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MainStudioView: View {
     @EnvironmentObject private var viewModel: StudioViewModel
-    @StateObject private var presetStore = PresetStore()
+    @EnvironmentObject private var presetStore: PresetStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,25 +10,49 @@ struct MainStudioView: View {
             Divider()
             content
         }
-        .alert(item: Binding(
-            get: { viewModel.errorMessage.map { ErrorWrapper(message: $0) } },
-            set: { _ in viewModel.errorMessage = nil }
-        )) { wrapper in
+        .alert(item: errorWrapperBinding) { wrapper in
             Alert(
                 title: Text("Camera Error"),
                 message: Text(wrapper.message),
                 dismissButton: .default(Text("OK"))
             )
         }
-        .onChange(of: viewModel.makeupSettings) { _ in
-            viewModel.syncMakeupSettingsToProcessor()
-        }
+    }
+
+    private var errorWrapperBinding: Binding<ErrorWrapper?> {
+        Binding<ErrorWrapper?>(
+            get: {
+                guard let message = viewModel.errorMessage else { return nil }
+                return ErrorWrapper(message: message)
+            },
+            set: { newValue in
+                if newValue == nil {
+                    viewModel.errorMessage = nil
+                }
+            }
+        )
     }
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 10) {
+            Button("Natural") {
+                viewModel.makeupSettings = .naturalPreset
+                presetStore.setActive(nil)
+            }
+
+            Button("Soft Glam") {
+                viewModel.makeupSettings = .softGlamPreset
+                presetStore.setActive(nil)
+            }
+
+            Button("Polished") {
+                viewModel.makeupSettings = .polishedPreset
+                presetStore.setActive(nil)
+            }
+
             Spacer()
-            Text(viewModel.isSessionRunning ? "● Live" : "○ Stopped")
+
+            Text(viewModel.isSessionRunning ? "Live" : "Stopped")
                 .foregroundColor(viewModel.isSessionRunning ? .green : .secondary)
                 .font(.caption)
         }
@@ -40,8 +64,6 @@ struct MainStudioView: View {
             ControlsSidebarView(settings: $viewModel.makeupSettings)
                 .frame(width: 260)
                 .background(.regularMaterial)
-                .environmentObject(viewModel)
-                .environmentObject(presetStore)
 
             Divider()
 
@@ -57,7 +79,7 @@ struct MainStudioView: View {
         }
     }
 
-    private struct ErrorWrapper: Identifiable {
+    private struct ErrorWrapper: Identifiable, Equatable {
         let id = UUID()
         let message: String
     }

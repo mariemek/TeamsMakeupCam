@@ -47,10 +47,89 @@ struct ControlsSidebarView: View {
                     systemImage: "eye",
                     value: $settings.eyelinerIntensity
                 )
+
                 intensityRow(
                     label: "Lashes",
                     systemImage: "eye.fill",
                     value: $settings.lashesIntensity
+                )
+
+                pickerRow(
+                    label: "Lash style",
+                    systemImage: "sparkles",
+                    selection: $settings.lashStyle,
+                    options: MakeupSettings.LashStyle.allCases
+                ) { style in
+                    style.displayName
+                }
+
+                intensityRow(
+                    label: "Lash opacity",
+                    systemImage: "circle.lefthalf.filled",
+                    value: $settings.lashesOpacity
+                )
+
+                compactValueRow(
+                    label: "Lash blur",
+                    systemImage: "drop",
+                    value: $settings.lashesBlurRadius,
+                    range: 0...2,
+                    format: "%.2f"
+                )
+                .padding(.bottom, 8)
+
+                Divider().padding(.horizontal, 16)
+
+                // ── Blush ────────────────────────────────────────────────────
+                sectionHeader("Blush")
+                colorRow(
+                    label: "Blush color",
+                    systemImage: "paintpalette",
+                    color: $settings.blushColor
+                )
+
+                intensityRow(
+                    label: "Blush intensity",
+                    systemImage: "circle.grid.2x2",
+                    value: $settings.blushIntensity
+                )
+
+                signedSliderRow(
+                    label: "Horizontal placement",
+                    systemImage: "arrow.left.and.right",
+                    value: $settings.blushPlacementX,
+                    range: -0.20...0.20
+                )
+
+                signedSliderRow(
+                    label: "Vertical placement",
+                    systemImage: "arrow.up.and.down",
+                    value: $settings.blushPlacementY,
+                    range: -0.20...0.20
+                )
+
+                compactValueRow(
+                    label: "Blush width",
+                    systemImage: "arrow.left.and.right.circle",
+                    value: $settings.blushWidth,
+                    range: 0.7...1.4,
+                    format: "%.2f"
+                )
+
+                compactValueRow(
+                    label: "Blush height",
+                    systemImage: "arrow.up.and.down.circle",
+                    value: $settings.blushHeight,
+                    range: 0.7...1.4,
+                    format: "%.2f"
+                )
+
+                compactValueRow(
+                    label: "Blush feather",
+                    systemImage: "cloud.fog",
+                    value: $settings.blushFeather,
+                    range: 0...1,
+                    format: "%.2f"
                 )
                 .padding(.bottom, 8)
 
@@ -131,7 +210,6 @@ struct ControlsSidebarView: View {
 
     private var presetActionsRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Active preset name (if any)
             if let active = presetStore.activePreset {
                 HStack(spacing: 6) {
                     Circle().fill(Color.green).frame(width: 7, height: 7)
@@ -239,7 +317,7 @@ struct ControlsSidebarView: View {
                             .monospacedDigit()
                     }
                 }
-                .frame(width: 36, alignment: .trailing)
+                .frame(width: 44, alignment: .trailing)
             }
 
             Slider(value: value, in: 0...1)
@@ -271,7 +349,7 @@ struct ControlsSidebarView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
-                    .frame(width: 36, alignment: .trailing)
+                    .frame(width: 44, alignment: .trailing)
             }
 
             Slider(value: value, in: range)
@@ -281,11 +359,73 @@ struct ControlsSidebarView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
     }
+
+    @ViewBuilder
+    private func compactValueRow(
+        label: String,
+        systemImage: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        format: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .frame(width: 18)
+                    .foregroundStyle(.secondary)
+
+                Text(label)
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(String(format: format, value.wrappedValue))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+            }
+
+            Slider(value: value, in: range)
+                .padding(.leading, 28)
+                .tint(.primary.opacity(0.6))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private func pickerRow<Option: Hashable>(
+        label: String,
+        systemImage: String,
+        selection: Binding<Option>,
+        options: [Option],
+        title: @escaping (Option) -> String
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+
+            Text(label)
+                .font(.system(size: 13))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Picker("", selection: selection) {
+                ForEach(options, id: \.self) { option in
+                    Text(title(option)).tag(option)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 120)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 5)
+    }
 }
 
 #Preview {
     ControlsSidebarView(settings: .constant(MakeupSettings()))
         .environmentObject(StudioViewModel())
         .environmentObject(PresetStore())
-        .frame(height: 680)
+        .frame(height: 760)
 }

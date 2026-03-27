@@ -1,81 +1,258 @@
 import Foundation
 import Combine
+import SwiftUI
+import AppKit
 
 // MARK: - MakeupPreset
 
-/// A named, saved snapshot of MakeupSettings that the user can reload.
 struct MakeupPreset: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var settings: MakeupSettings
     let createdAt: Date
 
-    init(name: String, settings: MakeupSettings) {
-        self.id        = UUID()
-        self.name      = name
-        self.settings  = settings
-        self.createdAt = Date()
+    init(
+        id: UUID = UUID(),
+        name: String,
+        settings: MakeupSettings,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.settings = settings
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case settings
+        case createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+
+        let snapshot = try container.decode(MakeupSettingsSnapshot.self, forKey: .settings)
+        settings = snapshot.makeupSettings
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(MakeupSettingsSnapshot(settings: settings), forKey: .settings)
+    }
+
+    static func == (lhs: MakeupPreset, rhs: MakeupPreset) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.name == rhs.name &&
+        lhs.createdAt == rhs.createdAt &&
+        MakeupSettingsSnapshot(settings: lhs.settings) == MakeupSettingsSnapshot(settings: rhs.settings)
     }
 }
 
 // MARK: - PresetStore
 
-/// Persists MakeupPresets in UserDefaults and tracks the active preset.
 final class PresetStore: ObservableObject {
-
-    private static let presetsKey      = "teamsMakeupCam.presets"
-    private static let activePresetKey = "teamsMakeupCam.activePresetID"
+    private static let presetsKey = "makeup_presets_v2"
+    private static let activePresetIDKey = "active_makeup_preset_id_v2"
 
     @Published private(set) var presets: [MakeupPreset] = []
     @Published private(set) var activePresetID: UUID?
 
     var activePreset: MakeupPreset? {
-        guard let id = activePresetID else { return nil }
-        return presets.first { $0.id == id }
+        guard let activePresetID else { return nil }
+        return presets.first(where: { $0.id == activePresetID })
     }
 
     init() {
         load()
     }
 
-    // MARK: - Mutating
+    func savePreset(name: String, settings: MakeupSettings) {
+        let preset = MakeupPreset(name: name, settings: settings)
+        presets.insert(preset, at: 0)
+        persist()
+    }
 
-    func save(preset: MakeupPreset) {
-        if let idx = presets.firstIndex(where: { $0.id == preset.id }) {
-            presets[idx] = preset
+    func upsertPreset(_ preset: MakeupPreset) {
+        if let index = presets.firstIndex(where: { $0.id == preset.id }) {
+            presets[index] = preset
         } else {
-            presets.append(preset)
+            presets.insert(preset, at: 0)
         }
         persist()
     }
 
-    func delete(preset: MakeupPreset) {
+    func deletePreset(_ preset: MakeupPreset) {
         presets.removeAll { $0.id == preset.id }
-        if activePresetID == preset.id { activePresetID = nil }
+
+        if activePresetID == preset.id {
+            activePresetID = nil
+        }
+
         persist()
     }
 
     func setActive(_ preset: MakeupPreset?) {
         activePresetID = preset?.id
-        UserDefaults.standard.set(preset?.id.uuidString, forKey: Self.activePresetKey)
+        persist()
     }
 
-    // MARK: - Persistence
+    func clearAll() {
+        presets.removeAll()
+        activePresetID = nil
+        persist()
+    }
 
     private func load() {
-        if let data = UserDefaults.standard.data(forKey: Self.presetsKey),
-           let decoded = try? JSONDecoder().decode([MakeupPreset].self, from: data) {
-            presets = decoded
+        let defaults = UserDefaults.standard
+
+        if let data = defaults.data(forKey: Self.presetsKey) {
+            do {
+                presets = try JSONDecoder().decode([MakeupPreset].self, from: data)
+            } catch {
+                presets = []
+                print("Failed to decode presets: \(error)")
+            }
+        } else {
+            presets = []
         }
-        if let idString = UserDefaults.standard.string(forKey: Self.activePresetKey),
-           let uuid = UUID(uuidString: idString) {
+
+        if let rawID = defaults.string(forKey: Self.activePresetIDKey),
+           let uuid = UUID(uuidString: rawID) {
             activePresetID = uuid
+        } else {
+            activePresetID = nil
         }
     }
 
     private func persist() {
-        if let data = try? JSONEncoder().encode(presets) {
-            UserDefaults.standard.set(data, forKey: Self.presetsKey)
+        let defaults = UserDefaults.standard
+
+        do {
+            let data = try JSONEncoder().encode(presets)
+            defaults.set(data, forKey: Self.presetsKey)
+        } catch {
+            print("Failed to encode presets: \(error)")
         }
+
+        defaults.set(activePresetID?.uuidString, forKey: Self.activePresetIDKey)
+    }
+}
+
+// MARK: - Codable helpers
+
+private struct RGBAColor: Codable, Equatable {
+    var red: Double
+    var green: Double
+    var blue: Double
+    var alpha: Double
+
+    init(red: Double, green: Double, blue: Double, alpha: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+    }
+
+    init(_ color: NSColor) {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        self.red = srgb.redComponent
+        self.green = srgb.greenComponent
+        self.blue = srgb.blueComponent
+        self.alpha = srgb.alphaComponent
+    }
+
+    var nsColor: NSColor {
+        NSColor(
+            calibratedRed: red,
+            green: green,
+            blue: blue,
+            alpha: alpha
+        )
+    }
+}
+
+private struct MakeupSettingsSnapshot: Codable, Equatable {
+    var lipstickColor: RGBAColor
+    var lipstickOpacity: Double
+
+    var lipLinerColor: RGBAColor
+    var lipLinerIntensity: Double
+
+    var smoothingStrength: Double
+    var eyelinerIntensity: Double
+    var lashesIntensity: Double
+
+    var lashStyleRawValue: String
+    var lashesOpacity: Double
+    var lashesBlurRadius: Double
+
+    var blushColor: RGBAColor
+    var blushIntensity: Double
+    var blushPlacementX: Double
+    var blushPlacementY: Double
+    var blushWidth: Double
+    var blushHeight: Double
+    var blushFeather: Double
+
+    init(settings: MakeupSettings) {
+        self.lipstickColor = RGBAColor(settings.lipstickNSColor)
+        self.lipstickOpacity = settings.lipstickOpacity
+
+        self.lipLinerColor = RGBAColor(settings.lipLinerNSColor)
+        self.lipLinerIntensity = settings.lipLinerIntensity
+
+        self.smoothingStrength = settings.smoothingStrength
+        self.eyelinerIntensity = settings.eyelinerIntensity
+        self.lashesIntensity = settings.lashesIntensity
+
+        self.lashStyleRawValue = settings.lashStyle.rawValue
+        self.lashesOpacity = settings.lashesOpacity
+        self.lashesBlurRadius = settings.lashesBlurRadius
+
+        self.blushColor = RGBAColor(settings.blushNSColor)
+        self.blushIntensity = settings.blushIntensity
+        self.blushPlacementX = settings.blushPlacementX
+        self.blushPlacementY = settings.blushPlacementY
+        self.blushWidth = settings.blushWidth
+        self.blushHeight = settings.blushHeight
+        self.blushFeather = settings.blushFeather
+    }
+
+    var makeupSettings: MakeupSettings {
+        var settings = MakeupSettings()
+
+        settings.lipstickNSColor = lipstickColor.nsColor
+        settings.lipstickOpacity = lipstickOpacity
+
+        settings.lipLinerNSColor = lipLinerColor.nsColor
+        settings.lipLinerIntensity = lipLinerIntensity
+
+        settings.smoothingStrength = smoothingStrength
+        settings.eyelinerIntensity = eyelinerIntensity
+        settings.lashesIntensity = lashesIntensity
+
+        settings.lashStyle = MakeupSettings.LashStyle(rawValue: lashStyleRawValue) ?? .wispy
+        settings.lashesOpacity = lashesOpacity
+        settings.lashesBlurRadius = lashesBlurRadius
+
+        settings.blushNSColor = blushColor.nsColor
+        settings.blushIntensity = blushIntensity
+        settings.blushPlacementX = blushPlacementX
+        settings.blushPlacementY = blushPlacementY
+        settings.blushWidth = blushWidth
+        settings.blushHeight = blushHeight
+        settings.blushFeather = blushFeather
+
+        return settings
     }
 }

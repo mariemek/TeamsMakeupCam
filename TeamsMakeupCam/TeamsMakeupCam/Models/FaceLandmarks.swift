@@ -3,19 +3,22 @@ import Foundation
 
 struct FaceLandmarks: Decodable {
     // MARK: - Lips
+
     var lips: [CGPoint] = []
+
     var outerLips: [CGPoint] {
         get { lips }
         set { lips = newValue }
     }
+
     var innerLips: [CGPoint] = []
 
     // MARK: - Eyes
+
     var leftEye: [CGPoint] = []
     var rightEye: [CGPoint] = []
 
-    // Upper eyelid points from sidecar (dedicated, more accurate than derived)
-    // Falls back to derived version if sidecar doesn't send them yet.
+    // Dedicated upper-eyelid points from the helper.
     var leftUpperEyelidRaw: [CGPoint] = []
     var rightUpperEyelidRaw: [CGPoint] = []
 
@@ -28,13 +31,20 @@ struct FaceLandmarks: Decodable {
     }
 
     // MARK: - Head pose
+
     var roll: Double = 0
     var yaw: Double = 0
     var pitch: Double = 0
 
     // MARK: - Face outline
+
     var faceContour: [CGPoint] = []
     var boundingBox: CGRect = .zero
+
+    // MARK: - Cheek anchors
+
+    var leftCheekPoint: CGPoint?
+    var rightCheekPoint: CGPoint?
 
     enum CodingKeys: String, CodingKey {
         case lips
@@ -49,6 +59,8 @@ struct FaceLandmarks: Decodable {
         case pitch
         case faceContour
         case boundingBox
+        case leftCheekPoint
+        case rightCheekPoint
     }
 
     init() {}
@@ -103,12 +115,21 @@ struct FaceLandmarks: Decodable {
         } else {
             self.boundingBox = .zero
         }
+
+        self.leftCheekPoint = Self.decodeOptionalPoint(
+            try container.decodeIfPresent([CGFloat].self, forKey: .leftCheekPoint)
+        )
+
+        self.rightCheekPoint = Self.decodeOptionalPoint(
+            try container.decodeIfPresent([CGFloat].self, forKey: .rightCheekPoint)
+        )
     }
 
     // MARK: - Helpers
+
     private func upperEyelid(fromClosedContour contour: [CGPoint]) -> [CGPoint] {
         guard contour.count > 2 else { return [] }
-        let centerY = contour.map { $0.y }.reduce(0, +) / CGFloat(contour.count)
+        let centerY = contour.map(\.y).reduce(0, +) / CGFloat(contour.count)
         return contour.filter { $0.y >= centerY }
     }
 
@@ -117,5 +138,10 @@ struct FaceLandmarks: Decodable {
             guard pair.count >= 2 else { return nil }
             return CGPoint(x: pair[0], y: pair[1])
         }
+    }
+
+    private static func decodeOptionalPoint(_ raw: [CGFloat]?) -> CGPoint? {
+        guard let raw, raw.count >= 2 else { return nil }
+        return CGPoint(x: raw[0], y: raw[1])
     }
 }
