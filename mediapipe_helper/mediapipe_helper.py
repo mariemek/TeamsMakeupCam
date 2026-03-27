@@ -137,12 +137,20 @@ RIGHT_EYE = [
 #   Left  brow lower: 300–293–334–296–336
 
 # Left eyebrow (subject's left; screen-right in mirrored feed)
+#
+# MediaPipe canonical positions (y=0 at top in native coords):
+#   300,293,334,296,336 sit HIGHER on the face (closer to forehead) → upper arc
+#   276,283,282,295,285 sit LOWER on the face (closer to eye)       → lower arc
 LEFT_EYEBROW = [
     276, 283, 282, 295, 285,   # upper arc: inner head → outer tail
     336, 296, 334, 293, 300    # lower arc: outer tail → inner head (reversed for closed contour)
 ]
 
 # Right eyebrow (subject's right; screen-left in mirrored feed)
+#
+# MediaPipe canonical positions:
+#   70,63,105,66,107 sit HIGHER on the face (closer to forehead) → upper arc
+#   46,53,52,65,55   sit LOWER on the face (closer to eye)       → lower arc
 RIGHT_EYEBROW = [
     46, 53, 52, 65, 55,     # upper arc: inner head → outer tail
     107, 66, 105, 63, 70    # lower arc: outer tail → inner head (reversed for closed contour)
