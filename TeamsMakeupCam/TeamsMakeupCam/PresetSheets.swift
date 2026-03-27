@@ -86,7 +86,6 @@ struct PresetsListView: View {
                             HStack(spacing: 3) {
                                 Circle().fill(preset.settings.lipstickColor).frame(width: 10, height: 10)
                                 Circle().fill(preset.settings.lipLinerColor).frame(width: 10, height: 10)
-                                Circle().fill(preset.settings.browColor).frame(width: 10, height: 10)
                             }
 
                             Button("Load") {

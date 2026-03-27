@@ -11,7 +11,7 @@ final class StudioViewModel: ObservableObject {
     @Published var isSessionRunning: Bool = false
     @Published var errorMessage: String?
 
-    @Published var makeupSettings: MakeupSettings = .naturalPreset
+    @Published var makeupSettings = MakeupSettings()
     @Published var debugLandmarks: [FaceLandmarks] = []
     @Published var processedFrame: CIImage?
 
@@ -111,21 +111,6 @@ final class StudioViewModel: ObservableObject {
         configureSession()
     }
 
-    func applyNaturalPreset() {
-        makeupSettings = .naturalPreset
-        syncMakeupSettingsToProcessor()
-    }
-
-    func applySoftGlamPreset() {
-        makeupSettings = .softGlamPreset
-        syncMakeupSettingsToProcessor()
-    }
-
-    func applyPolishedPreset() {
-        makeupSettings = .polishedPreset
-        syncMakeupSettingsToProcessor()
-    }
-
     func syncMakeupSettingsToProcessor() {
         frameProcessor.currentMakeupSettings = makeupSettings
     }
@@ -154,16 +139,6 @@ extension StudioViewModel: CameraManagerDelegate {
 extension StudioViewModel: VideoFrameProcessorDelegate {
     nonisolated func videoFrameProcessor(_ processor: VideoFrameProcessor, didUpdate landmarks: [FaceLandmarks], processedFrame: CIImage?) {
         Task { @MainActor in
-            print("Landmarks array count:", landmarks.count)
-            if let first = landmarks.first {
-                print("outerLips:", first.outerLips.count)
-                print("innerLips:", first.innerLips.count)
-                print("leftEye:", first.leftEye.count)
-                print("rightEye:", first.rightEye.count)
-                print("leftEyebrow:", first.leftEyebrow.count)
-                print("rightEyebrow:", first.rightEyebrow.count)
-                print("faceContour:", first.faceContour.count)
-            }
             self.debugLandmarks = landmarks
             self.processedFrame = processedFrame
         }

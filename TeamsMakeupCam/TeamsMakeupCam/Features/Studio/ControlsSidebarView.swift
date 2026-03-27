@@ -40,22 +40,6 @@ struct ControlsSidebarView: View {
 
                 Divider().padding(.horizontal, 16)
 
-                // ── Brows ────────────────────────────────────────────────────
-                sectionHeader("Brows")
-                colorRow(
-                    label: "Brow color",
-                    systemImage: "eyebrow",
-                    color: $settings.browColor
-                )
-                intensityRow(
-                    label: "Intensity",
-                    systemImage: "slider.horizontal.3",
-                    value: $settings.browIntensity
-                )
-                .padding(.bottom, 8)
-
-                Divider().padding(.horizontal, 16)
-
                 // ── Eyes ─────────────────────────────────────────────────────
                 sectionHeader("Eyes")
                 intensityRow(

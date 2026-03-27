@@ -87,14 +87,6 @@ final class VisionBackedFaceLandmarker: MediaPipeFaceLandmarker {
             result.innerLips = convert(points: inner.normalizedPoints, in: bbox)
         }
 
-        if let leftBrow = observation.landmarks?.leftEyebrow {
-            result.leftEyebrow = convert(points: leftBrow.normalizedPoints, in: bbox)
-        }
-
-        if let rightBrow = observation.landmarks?.rightEyebrow {
-            result.rightEyebrow = convert(points: rightBrow.normalizedPoints, in: bbox)
-        }
-
         if let leftEye = observation.landmarks?.leftEye {
             result.leftEye = convert(points: leftEye.normalizedPoints, in: bbox)
         }

@@ -28,8 +28,6 @@ Response (face found):
     "innerLips":    [[x, y], ...],
     "leftEye":      [[x, y], ...],
     "rightEye":     [[x, y], ...],
-    "leftEyebrow":  [[x, y], ...],
-    "rightEyebrow": [[x, y], ...],
     "faceContour":  [[x, y], ...]
   }
 
@@ -121,41 +119,6 @@ RIGHT_EYE = [
     173, 157, 158, 159, 160, 161, 246, 33         # upper lid
 ]
 
-# Eyebrow landmarks — ordered closed contour.
-#
-# Points are sent as a closed polygon:
-#   pts[0..4]  = upper arc, inner-corner → outer-corner  (top edge of brow)
-#   pts[5..9]  = lower arc, outer-corner → inner-corner  (bottom edge of brow, REVERSED)
-#
-# This ordering lets the Swift renderer draw a closed Catmull-Rom path
-# directly (like lips) without needing to sort or re-orient the points.
-#
-# MediaPipe Face Mesh official contour connections (from FACEMESH_EYEBROWS):
-#   Right brow upper: 46–53–52–65–55
-#   Right brow lower: 70–63–105–66–107
-#   Left  brow upper: 276–283–282–295–285
-#   Left  brow lower: 300–293–334–296–336
-
-# Left eyebrow (subject's left; screen-right in mirrored feed)
-#
-# MediaPipe canonical positions (y=0 at top in native coords):
-#   300,293,334,296,336 sit HIGHER on the face (closer to forehead) → upper arc
-#   276,283,282,295,285 sit LOWER on the face (closer to eye)       → lower arc
-LEFT_EYEBROW = [
-    276, 283, 282, 295, 285,   # upper arc: inner head → outer tail
-    336, 296, 334, 293, 300    # lower arc: outer tail → inner head (reversed for closed contour)
-]
-
-# Right eyebrow (subject's right; screen-left in mirrored feed)
-#
-# MediaPipe canonical positions:
-#   70,63,105,66,107 sit HIGHER on the face (closer to forehead) → upper arc
-#   46,53,52,65,55   sit LOWER on the face (closer to eye)       → lower arc
-RIGHT_EYEBROW = [
-    46, 53, 52, 65, 55,     # upper arc: inner head → outer tail
-    107, 66, 105, 63, 70    # lower arc: outer tail → inner head (reversed for closed contour)
-]
-
 # Upper eyelid landmarks for eyeliner — subject's LEFT eye (screen-right in mirror).
 # Follows the upper lid from outer corner → inner corner along the lid crease.
 # MediaPipe contour: 263–466–388–387–386–385–384–398–362
@@ -228,8 +191,6 @@ def face_landmarks_endpoint():
         "innerLips":          extract_points(face, INNER_LIPS),
         "leftEye":            extract_points(face, LEFT_EYE),
         "rightEye":           extract_points(face, RIGHT_EYE),
-        "leftEyebrow":        extract_points(face, LEFT_EYEBROW),
-        "rightEyebrow":       extract_points(face, RIGHT_EYEBROW),
         "leftUpperEyelidRaw": extract_points(face, LEFT_UPPER_EYELID),
         "rightUpperEyelidRaw":extract_points(face, RIGHT_UPPER_EYELID),
         "faceContour":        extract_points(face, FACE_CONTOUR),
