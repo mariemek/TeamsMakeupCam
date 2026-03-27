@@ -258,8 +258,8 @@ final class EyelinerRenderer {
         let outerMid = CGPoint(x: (outerU.x + outerL.x) / 2,
                                y: (outerU.y + outerL.y) / 2)
 
-        let wingLen  = lidSpan * 0.12
-        let wingLift = lidSpan * 0.05
+        let wingLen  = lidSpan * 0.18
+        let wingLift = lidSpan * 0.07
 
         // Wing tip: extend along tangent, lift AWAY from eye (−normal).
         let wingTip = CGPoint(
