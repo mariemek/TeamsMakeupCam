@@ -57,11 +57,10 @@ final class PreviewContainerView: NSView {
     private let lipstickLayer = CAShapeLayer()
     private let lipLinerLayer = CAShapeLayer()
     private let eyelinerLayer = CAShapeLayer()
-    private let lashesLayer   = CAShapeLayer()
     private let debugOverlayLayer = CAShapeLayer()
 
     private var allLayers: [CALayer] {
-        [previewLayer, contentLayer, lashesLayer, eyelinerLayer,
+        [previewLayer, contentLayer, pngLashesRenderer.containerLayer, eyelinerLayer,
          lipstickLayer, lipLinerLayer, debugOverlayLayer]
     }
 
@@ -70,7 +69,7 @@ final class PreviewContainerView: NSView {
     private let lipstickRenderer  = LipstickRenderer()
     private let lipLinerRenderer  = LipLinerRenderer()
     private let eyelinerRenderer  = EyelinerRenderer()
-    private let lashesRenderer    = LashesRenderer()
+    private let pngLashesRenderer = PNGLashesRenderer()
 
     // MARK: - State
 
@@ -118,7 +117,7 @@ final class PreviewContainerView: NSView {
         // Z-order: previewLayer at bottom, overlays on top.
         rootLayer.addSublayer(previewLayer)
         rootLayer.addSublayer(contentLayer)
-        rootLayer.addSublayer(lashesLayer)
+        rootLayer.addSublayer(pngLashesRenderer.containerLayer)
         rootLayer.addSublayer(eyelinerLayer)
         rootLayer.addSublayer(lipstickLayer)
         rootLayer.addSublayer(lipLinerLayer)
@@ -206,9 +205,10 @@ final class PreviewContainerView: NSView {
             useProcessedFrameCoordinates: useProcessed,
             contentExtent: lastRenderedExtent, viewBounds: bounds)
 
-        lashesRenderer.updateLashesLayer(
-            lashesLayer, with: landmarks, in: previewLayer,
+        pngLashesRenderer.update(
+            with: landmarks, in: previewLayer,
             settings: makeupSettings,
+            style: .wispy,
             useProcessedFrameCoordinates: useProcessed,
             contentExtent: lastRenderedExtent, viewBounds: bounds)
 
@@ -231,8 +231,8 @@ final class PreviewContainerView: NSView {
         lipstickLayer.path     = nil
         lipLinerLayer.path     = nil
         eyelinerLayer.path     = nil
-        lashesLayer.path       = nil
         debugOverlayLayer.path = nil
+        pngLashesRenderer.hide()
     }
 
     // MARK: - Helpers
