@@ -4,14 +4,11 @@ import AppKit
 /// Renders lash overlays by positioning a transparent PNG lash-strip image onto
 /// the detected upper eyelid curve for each eye.
 ///
-/// Each eye gets its own `CALayer`.  The lash image band (bottom arc) is aligned
-/// to the upper-lid lash line using position, scale, and rotation derived from
-/// the inner and outer eye corners.
-///
-/// ## Realism techniques
-/// - **Temporal smoothing** on position, scale, and angle to prevent jitter.
-/// - **Blink hold**: Retains last-good placement during blinks.
-/// - **Opacity** controlled by `lashesIntensity * lashesOpacity`.
+/// Follows the same layer pattern as `BlushRenderer`:
+/// - Lash layers are in `fullFrameLayers` (get frame + mirror from layout)
+/// - Renderer overrides `bounds`, `position`, `anchorPoint` each frame
+/// - Uses `setAffineTransform()` which **replaces** the mirror transform,
+///   so screen-space coordinates from the preview layer work directly.
 final class LashesRenderer {
 
     // MARK: - Per-eye tracking state
@@ -33,27 +30,35 @@ final class LashesRenderer {
     private let sizeAlpha: CGFloat  = 0.30
     private let blinkThreshold: CGFloat = 0.10
 
-    /// Width multiplier: the lash strip occupies ~70% of the image width,
-    /// so we need ~1.45× to make the actual lash strip match the eye span.
-    private let widthOvershoot: CGFloat = 1.45
+    /// Small overshoot so the strip extends slightly past eye corners.
+    private let overshoot: CGFloat = 1.10
 
-    /// Nudge toward eye center so band sits ON the lash line (fraction of eye span).
+    /// Nudge toward eye center so band sits ON the lash line (fraction of span).
     private let verticalNudge: CGFloat = 0.06
 
-    /// Fraction from top of image where the lash band sits (per-style).
-    /// Measured from the PNG bounding box bottom (where the band curve is).
-    private func bandYFraction(for style: MakeupSettings.LashStyle) -> CGFloat {
+    // MARK: - Per-style constants (measured from the 1200×1200 PNGs)
+
+    /// Where the lash band sits (fraction from image top).
+    private func bandY(for style: MakeupSettings.LashStyle) -> CGFloat {
         switch style {
-        case .natural:  return 0.55   // band at 55% from top
-        case .wispy:    return 0.68   // band at 68% from top
-        case .dramatic: return 0.58   // band at 58% from top
+        case .natural:  return 0.55
+        case .wispy:    return 0.68
+        case .dramatic: return 0.58
         }
     }
 
-    // MARK: - Cached image per style
+    /// How much of the image width the visible lash content fills.
+    private func contentWidthFraction(for style: MakeupSettings.LashStyle) -> CGFloat {
+        switch style {
+        case .natural:  return 0.68
+        case .wispy:    return 0.69
+        case .dramatic: return 0.79
+        }
+    }
 
-    private var cachedStyle: MakeupSettings.LashStyle?
-    private var cachedImage: CGImage?
+    // MARK: - Image cache (per-style)
+
+    private var imageCache: [MakeupSettings.LashStyle: CGImage] = [:]
 
     // MARK: - Public entry point
 
@@ -85,8 +90,7 @@ final class LashesRenderer {
             return
         }
 
-        let image = lashImage(for: settings.lashStyle)
-        guard let image else {
+        guard let image = loadImage(for: settings.lashStyle) else {
             clearLayer(leftLayer)
             clearLayer(rightLayer)
             return
@@ -100,7 +104,8 @@ final class LashesRenderer {
         }
 
         let finalOpacity = Float(intensity * opacity)
-        let bandY = bandYFraction(for: settings.lashStyle)
+        let bandFrac = bandY(for: settings.lashStyle)
+        let contentFrac = contentWidthFraction(for: settings.lashStyle)
 
         if !face.leftEye.isEmpty {
             updateSingleEye(
@@ -111,7 +116,8 @@ final class LashesRenderer {
                 image: image,
                 flipHorizontally: false,
                 opacity: finalOpacity,
-                bandY: bandY,
+                bandFrac: bandFrac,
+                contentFrac: contentFrac,
                 state: &leftState
             )
         } else {
@@ -127,7 +133,8 @@ final class LashesRenderer {
                 image: image,
                 flipHorizontally: true,
                 opacity: finalOpacity,
-                bandY: bandY,
+                bandFrac: bandFrac,
+                contentFrac: contentFrac,
                 state: &rightState
             )
         } else {
@@ -145,7 +152,8 @@ final class LashesRenderer {
         image: CGImage,
         flipHorizontally: Bool,
         opacity: Float,
-        bandY: CGFloat,
+        bandFrac: CGFloat,
+        contentFrac: CGFloat,
         state: inout EyeState
     ) {
         guard eye.count > 3 else { holdOrClear(layer, state: state); return }
@@ -188,11 +196,13 @@ final class LashesRenderer {
         let imgH = CGFloat(image.height)
         guard imgW > 0, imgH > 0 else { return }
 
-        // Scale image to match eye span.
-        let targetW = sSpan * widthOvershoot
-        let scale   = targetW / imgW
+        // Scale: make the visible lash content match the eye span (+ overshoot).
+        let targetContentW = sSpan * overshoot
+        let targetLayerW   = targetContentW / contentFrac
+        let scale = targetLayerW / imgW
+        let layerSize = CGSize(width: imgW * scale, height: imgH * scale)
 
-        // Band target: midpoint of the lid line, nudged toward eye center.
+        // Position: midpoint of lid line, nudged toward eye center.
         let midX  = (sInner.x + sOuter.x) / 2
         let nudge = sSpan * verticalNudge
 
@@ -206,30 +216,21 @@ final class LashesRenderer {
         let targetX = midX + s * nx * nudge
         let targetY = sMidY + s * ny * nudge
 
-        let layerW = imgW * scale
-        let layerH = imgH * scale
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-
-        layer.contents = image
-        layer.contentsGravity = .resize
-        layer.bounds = CGRect(x: 0, y: 0, width: layerW, height: layerH)
-
-        // Anchor at band center: horizontally centered, vertically at the band.
-        layer.anchorPoint = CGPoint(x: 0.5, y: bandY)
+        // ── Update layer (same pattern as BlushRenderer) ──────────────────
+        layer.bounds = CGRect(origin: .zero, size: layerSize)
         layer.position = CGPoint(x: targetX, y: targetY)
-
-        // Rotation + optional horizontal flip for the other eye.
-        var xform = CATransform3DMakeRotation(sAngle, 0, 0, 1)
-        if flipHorizontally {
-            xform = CATransform3DConcat(CATransform3DMakeScale(-1, 1, 1), xform)
-        }
-        layer.transform = xform
-
+        layer.anchorPoint = CGPoint(x: 0.5, y: bandFrac)
         layer.opacity = opacity
+        layer.contentsGravity = .resize
+        layer.contents = image
 
-        CATransaction.commit()
+        // setAffineTransform REPLACES the mirror transform from layout(),
+        // so screen-space coordinates work correctly (same as BlushRenderer).
+        var xform = CGAffineTransform(rotationAngle: sAngle)
+        if flipHorizontally {
+            xform = CGAffineTransform(scaleX: -1, y: 1).concatenating(xform)
+        }
+        layer.setAffineTransform(xform)
 
         state.hasValidPlacement = true
     }
@@ -254,40 +255,54 @@ final class LashesRenderer {
         return movingAverage(pts, window: 3)
     }
 
-    // MARK: - Image loading
+    // MARK: - Image loading (with logging + fallbacks)
 
-    private func lashImage(for style: MakeupSettings.LashStyle) -> CGImage? {
-        if style == cachedStyle, let img = cachedImage { return img }
+    private func loadImage(for style: MakeupSettings.LashStyle) -> CGImage? {
+        if let cached = imageCache[style] { return cached }
 
-        let names: [String]
+        let primaryName: String
         switch style {
-        case .natural:  names = ["lash_natural", "lashes"]
-        case .wispy:    names = ["lash_wispy", "lashes"]
-        case .dramatic: names = ["lash_dramatic", "lashes"]
+        case .natural:  primaryName = "lash_natural"
+        case .wispy:    primaryName = "lash_wispy"
+        case .dramatic: primaryName = "lash_dramatic"
         }
+
+        let names = [primaryName, "lashes"]
 
         for name in names {
             if let nsImage = NSImage(named: name),
                let tiff = nsImage.tiffRepresentation,
                let rep = NSBitmapImageRep(data: tiff),
                let cg = rep.cgImage {
-                cachedStyle = style
-                cachedImage = cg
+                NSLog("[LashesRenderer] Loaded '%@' (%dx%d)", name, cg.width, cg.height)
+                imageCache[style] = cg
                 return cg
+            } else {
+                NSLog("[LashesRenderer] NSImage(named: '%@') failed", name)
             }
         }
 
+        // Bundle.main URL fallback.
+        if let url = Bundle.main.url(forResource: primaryName, withExtension: "png"),
+           let data = try? Data(contentsOf: url),
+           let nsImage = NSImage(data: data),
+           let tiff = nsImage.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let cg = rep.cgImage {
+            NSLog("[LashesRenderer] Loaded '%@' via Bundle URL fallback", primaryName)
+            imageCache[style] = cg
+            return cg
+        }
+
+        NSLog("[LashesRenderer] FAILED to load any image for style '%@'", style.rawValue)
         return nil
     }
 
     // MARK: - Layer helpers
 
     private func clearLayer(_ layer: CALayer) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
         layer.contents = nil
         layer.opacity = 0
-        CATransaction.commit()
     }
 
     private func holdOrClear(_ layer: CALayer, state: EyeState) {

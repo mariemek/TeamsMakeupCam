@@ -67,6 +67,8 @@ final class PreviewContainerView: NSView {
             contentLayer,
             leftBlushLayer,
             rightBlushLayer,
+            leftLashLayer,
+            rightLashLayer,
             eyelinerLayer,
             lipstickLayer,
             lipLinerLayer,
