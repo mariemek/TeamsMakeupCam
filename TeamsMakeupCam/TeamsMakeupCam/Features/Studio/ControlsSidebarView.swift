@@ -69,14 +69,7 @@ struct ControlsSidebarView: View {
                     value: $settings.lashesOpacity
                 )
 
-                compactValueRow(
-                    label: "Lash blur",
-                    systemImage: "drop",
-                    value: $settings.lashesBlurRadius,
-                    range: 0...2,
-                    format: "%.2f"
-                )
-                .padding(.bottom, 8)
+                Spacer().frame(height: 8)
 
                 Divider().padding(.horizontal, 16)
 
