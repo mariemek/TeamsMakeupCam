@@ -163,8 +163,9 @@ final class LashesRenderer {
             return
         }
 
+        let hasUpperLid = upperLid != nil
         let spineSource = upperLid ?? eye
-        guard let spine = buildSpine(points: spineSource, convert: convert) else {
+        guard let spine = buildSpine(points: spineSource, convert: convert, isUpperLidOnly: hasUpperLid) else {
             holdOrClear(layer, state: state)
             return
         }
@@ -219,7 +220,9 @@ final class LashesRenderer {
         // ── Update layer (same pattern as BlushRenderer) ──────────────────
         layer.bounds = CGRect(origin: .zero, size: layerSize)
         layer.position = CGPoint(x: targetX, y: targetY)
-        layer.anchorPoint = CGPoint(x: 0.5, y: bandFrac)
+        // macOS non-flipped: anchorPoint Y=0 is bottom, Y=1 is top.
+        // Band at bandFrac from image top = (1 - bandFrac) from layer bottom.
+        layer.anchorPoint = CGPoint(x: 0.5, y: 1.0 - bandFrac)
         layer.opacity = opacity
         layer.contentsGravity = .resize
         layer.contents = image
@@ -239,15 +242,23 @@ final class LashesRenderer {
 
     private func buildSpine(
         points: [CGPoint],
-        convert: (CGPoint) -> CGPoint
+        convert: (CGPoint) -> CGPoint,
+        isUpperLidOnly: Bool
     ) -> [CGPoint]? {
-        guard points.count >= 5 else { return nil }
+        // Dedicated upper-lid arc (9 pts) → use as-is.
+        // Full eye contour → extract upper half by Y.
+        let arc: [CGPoint]
+        if isUpperLidOnly {
+            guard points.count >= 3 else { return nil }
+            arc = points
+        } else {
+            guard points.count >= 5 else { return nil }
+            let centY = points.map(\.y).reduce(0, +) / CGFloat(points.count)
+            arc = points.filter { $0.y >= centY }
+            guard arc.count >= 3 else { return nil }
+        }
 
-        let centY = points.map(\.y).reduce(0, +) / CGFloat(points.count)
-        let upper = points.filter { $0.y >= centY }
-        guard upper.count >= 3 else { return nil }
-
-        var pts = upper.map(convert)
+        var pts = arc.map(convert)
         pts = deduplicate(pts, minGap: 1.0)
         guard pts.count >= 3 else { return nil }
         pts.sort { $0.x < $1.x }
