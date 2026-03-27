@@ -33,15 +33,22 @@ final class LashesRenderer {
     private let sizeAlpha: CGFloat  = 0.30
     private let blinkThreshold: CGFloat = 0.10
 
-    /// Fraction from top of image where the lash band sits.
-    /// The PNG shows lash hairs extending upward from a curved band near the bottom.
-    private let bandYFraction: CGFloat = 0.78
-
-    /// Extra width multiplier so the strip slightly overshoots the eye corners.
-    private let widthOvershoot: CGFloat = 1.15
+    /// Width multiplier: the lash strip occupies ~70% of the image width,
+    /// so we need ~1.45× to make the actual lash strip match the eye span.
+    private let widthOvershoot: CGFloat = 1.45
 
     /// Nudge toward eye center so band sits ON the lash line (fraction of eye span).
     private let verticalNudge: CGFloat = 0.06
+
+    /// Fraction from top of image where the lash band sits (per-style).
+    /// Measured from the PNG bounding box bottom (where the band curve is).
+    private func bandYFraction(for style: MakeupSettings.LashStyle) -> CGFloat {
+        switch style {
+        case .natural:  return 0.55   // band at 55% from top
+        case .wispy:    return 0.68   // band at 68% from top
+        case .dramatic: return 0.58   // band at 58% from top
+        }
+    }
 
     // MARK: - Cached image per style
 
@@ -93,6 +100,7 @@ final class LashesRenderer {
         }
 
         let finalOpacity = Float(intensity * opacity)
+        let bandY = bandYFraction(for: settings.lashStyle)
 
         if !face.leftEye.isEmpty {
             updateSingleEye(
@@ -103,6 +111,7 @@ final class LashesRenderer {
                 image: image,
                 flipHorizontally: false,
                 opacity: finalOpacity,
+                bandY: bandY,
                 state: &leftState
             )
         } else {
@@ -118,6 +127,7 @@ final class LashesRenderer {
                 image: image,
                 flipHorizontally: true,
                 opacity: finalOpacity,
+                bandY: bandY,
                 state: &rightState
             )
         } else {
@@ -135,6 +145,7 @@ final class LashesRenderer {
         image: CGImage,
         flipHorizontally: Bool,
         opacity: Float,
+        bandY: CGFloat,
         state: inout EyeState
     ) {
         guard eye.count > 3 else { holdOrClear(layer, state: state); return }
@@ -206,7 +217,7 @@ final class LashesRenderer {
         layer.bounds = CGRect(x: 0, y: 0, width: layerW, height: layerH)
 
         // Anchor at band center: horizontally centered, vertically at the band.
-        layer.anchorPoint = CGPoint(x: 0.5, y: bandYFraction)
+        layer.anchorPoint = CGPoint(x: 0.5, y: bandY)
         layer.position = CGPoint(x: targetX, y: targetY)
 
         // Rotation + optional horizontal flip for the other eye.
