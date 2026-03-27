@@ -225,8 +225,9 @@ final class EyelinerRenderer {
 
         // ── 2. Upper / lower edges (perpendicular to spine) ─────────────────
         // Geometry is fixed — intensity does NOT affect it.
-        // Upper edge sits right ON the lash line (spine); band extends toward
-        // the eye opening (toward eyeCenter).
+        // The band straddles the lash line: upper edge on the eyelid (AWAY
+        // from eye centre), lower edge at the lash line (spine).
+        // Normal points toward eye centre, so −normal points onto the lid.
         let maxThick = max(2.5, min(lidSpan * 0.065, 7.0))
 
         var upper = [CGPoint](repeating: .zero, count: n)
@@ -242,11 +243,11 @@ final class EyelinerRenderer {
             let p  = spine[i]
             let nm = normals[i]
 
-            // Upper edge = the spine itself (lash line).
-            upper[i] = p
-            // Lower edge = offset toward the eye centre by thickness.
-            lower[i] = CGPoint(x: p.x + nm.x * thick,
-                               y: p.y + nm.y * thick)
+            // Upper edge = offset onto the eyelid (away from eye centre).
+            upper[i] = CGPoint(x: p.x - nm.x * thick,
+                               y: p.y - nm.y * thick)
+            // Lower edge = the spine itself (lash line).
+            lower[i] = p
         }
 
         // ── 3. Wing ─────────────────────────────────────────────────────────
