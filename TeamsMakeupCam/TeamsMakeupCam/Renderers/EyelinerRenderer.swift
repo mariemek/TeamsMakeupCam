@@ -1,31 +1,36 @@
 import AVFoundation
 import AppKit
 
+/// Renders a filled eyeliner shape along the upper lid with a smooth wing.
+///
+/// ## Key design decisions
+/// - **Band perpendicular to spine**: Thickness offsets are applied along the
+///   normal perpendicular to the lid curve at each point, so the shape follows
+///   the eye on head tilt instead of using absolute vertical offsets.
+/// - **Wing follows actual tangent**: The flick direction comes from the spine's
+///   outer-end tangent. No forced left/right override — this means the wing
+///   naturally tilts with the head.
+/// - **Intensity = opacity only**: Geometry (wing length, band thickness) is fixed.
+///   The `intensity` slider only controls the fill alpha.
 final class EyelinerRenderer {
+
+    // MARK: - State
 
     private struct EyeTrackState {
         var smoothedEye: [CGPoint] = []
         var lastGoodSpine: [CGPoint] = []
-        var lastGoodBand: Band?
-        var lastOuterU: CGPoint = .zero
-        var lastExtendedOuterU: CGPoint = .zero
-        var lastWedgeBase: CGPoint = .zero
-        var lastWingTip: CGPoint = .zero
+        var lastGoodPath: CGPath?
         var hasValidShape = false
-        var lastOuterL: CGPoint = .zero
     }
 
-    private struct Band {
-        var upperEdge: [CGPoint]
-        var lowerEdge: [CGPoint]
-    }
-
-    private var leftState = EyeTrackState()
+    private var leftState  = EyeTrackState()
     private var rightState = EyeTrackState()
 
-    private let pointSmoothingAlpha: CGFloat = 0.35
-    private let shapeSmoothingAlpha: CGFloat = 0.40
+    private let pointAlpha: CGFloat = 0.35
+    private let shapeAlpha: CGFloat = 0.40
     private let blinkThreshold: CGFloat = 0.10
+
+    // MARK: - Public entry point
 
     func updateEyelinerLayer(
         _ layer: CAShapeLayer,
@@ -39,7 +44,7 @@ final class EyelinerRenderer {
         let intensity = max(0.0, min(settings.eyelinerIntensity, 1.0))
         guard intensity > 0.0 else {
             clearLayer(layer)
-            leftState = EyeTrackState()
+            leftState  = EyeTrackState()
             rightState = EyeTrackState()
             return
         }
@@ -51,379 +56,287 @@ final class EyelinerRenderer {
         }
 
         let convert: (CGPoint) -> CGPoint
-        if useProcessedFrameCoordinates, let extent = contentExtent, let bounds = viewBounds {
-            convert = { Self.convertProcessedFrameNormalizedToView($0, contentExtent: extent, viewBounds: bounds) }
+        if useProcessedFrameCoordinates,
+           let extent = contentExtent, let bounds = viewBounds {
+            convert = { Self.normToView($0, extent: extent, bounds: bounds) }
         } else {
-            convert = { Self.convertToLayerSpace($0, in: previewLayer) }
+            convert = { Self.toLayer($0, in: previewLayer) }
         }
 
         let path = CGMutablePath()
 
-        // Prefer the dedicated upper-lid points (9 pts, precise lid crease)
-        // over deriving the upper arc from the full eye contour (16 pts).
-        let leftEyePts  = face.leftUpperEyelidRaw.isEmpty  ? face.leftEye  : face.leftUpperEyelidRaw
-        let rightEyePts = face.rightUpperEyelidRaw.isEmpty ? face.rightEye : face.rightUpperEyelidRaw
-
-        if !leftEyePts.isEmpty {
+        if !face.leftEye.isEmpty {
             drawEye(
-                eye: leftEyePts,
+                fullEye: face.leftEye,
+                upperLid: face.leftUpperEyelidRaw.isEmpty ? nil : face.leftUpperEyelidRaw,
                 convert: convert,
-                intensity: intensity,
                 wingGoesRight: true,
                 state: &leftState,
                 into: path
             )
         }
 
-        if !rightEyePts.isEmpty {
+        if !face.rightEye.isEmpty {
             drawEye(
-                eye: rightEyePts,
+                fullEye: face.rightEye,
+                upperLid: face.rightUpperEyelidRaw.isEmpty ? nil : face.rightUpperEyelidRaw,
                 convert: convert,
-                intensity: intensity,
                 wingGoesRight: false,
                 state: &rightState,
                 into: path
             )
         }
 
-        layer.path = path
-        layer.fillColor = NSColor.labelColor.withAlphaComponent(intensity).cgColor
+        // Intensity only controls opacity, not geometry.
+        layer.path        = path
+        layer.fillColor   = NSColor.labelColor.withAlphaComponent(intensity).cgColor
         layer.strokeColor = NSColor.clear.cgColor
-        layer.lineWidth = 0
-        layer.fillRule = .nonZero
-        layer.shadowColor = NSColor.labelColor.withAlphaComponent(0.10 * intensity).cgColor
-        layer.shadowRadius = 0.8
+        layer.lineWidth   = 0
+        layer.fillRule    = .nonZero
+
+        layer.shadowColor   = NSColor.labelColor.withAlphaComponent(0.10 * intensity).cgColor
+        layer.shadowRadius  = 0.8
         layer.shadowOpacity = 1.0
-        layer.shadowOffset = .zero
+        layer.shadowOffset  = .zero
     }
 
-    // MARK: - Main eye draw
+    // MARK: - Per-eye draw
 
     private func drawEye(
-        eye: [CGPoint],
+        fullEye: [CGPoint],
+        upperLid: [CGPoint]?,
         convert: (CGPoint) -> CGPoint,
-        intensity: CGFloat,
         wingGoesRight: Bool,
         state: inout EyeTrackState,
         into path: CGMutablePath
     ) {
-        let stableEye = smoothPoints(eye, previous: state.smoothedEye, alpha: pointSmoothingAlpha)
+        // Smooth the full-eye contour (needed for blink detection).
+        let stableEye = smooth(fullEye, prev: state.smoothedEye, alpha: pointAlpha)
         state.smoothedEye = stableEye
 
-        let openness = eyeOpenness(of: stableEye)
-        let isBlinking = openness < blinkThreshold
-
-        if isBlinking, state.hasValidShape, let lastBand = state.lastGoodBand {
-            path.addPath(
-                closedBand(
-                    band: lastBand,
-                    outerU: state.lastOuterU,
-                    extendedOuterU: state.lastExtendedOuterU,
-                    wedgeBase: state.lastWedgeBase,
-                    wingTip: state.lastWingTip
-                )
-            )
+        // Blink → hold last shape.
+        if eyeOpenness(stableEye) < blinkThreshold {
+            if let p = state.lastGoodPath { path.addPath(p) }
             return
         }
 
-        guard let spine = buildSpine(
-            eye: stableEye,
+        // Build spine from upper lid when available; otherwise derive.
+        let spineSource = upperLid ?? stableEye
+        guard let rawSpine = buildSpine(
+            eye: spineSource,
             convert: convert,
             wingGoesRight: wingGoesRight
         ) else {
-            if state.hasValidShape, let lastBand = state.lastGoodBand {
-                path.addPath(
-                    closedBand(
-                        band: lastBand,
-                        outerU: state.lastOuterU,
-                        extendedOuterU: state.lastExtendedOuterU,
-                        wedgeBase: state.lastWedgeBase,
-                        wingTip: state.lastWingTip
-                    )
-                )
-            }
+            if let p = state.lastGoodPath { path.addPath(p) }
             return
         }
 
-        let smoothedSpine = smoothPolyline(spine, previous: state.lastGoodSpine, alpha: shapeSmoothingAlpha)
-        state.lastGoodSpine = smoothedSpine
+        let spine = smooth(rawSpine, prev: state.lastGoodSpine, alpha: shapeAlpha)
+        state.lastGoodSpine = spine
 
-        let lidSpan = abs(smoothedSpine.last!.x - smoothedSpine.first!.x)
+        let lidSpan = hypot(spine.last!.x - spine.first!.x,
+                            spine.last!.y - spine.first!.y)
         guard lidSpan > 2 else { return }
 
-        var band = buildBand(spine: smoothedSpine, lidSpan: lidSpan, intensity: intensity)
+        // Eye centre in screen coords — used to orient per-point normals
+        // so the band always sits between the lid and the iris.
+        let eyeCenterNorm = centroid(stableEye)
+        let eyeCenter = convert(eyeCenterNorm)
 
-        let outerU = band.upperEdge.last!
-        let outerL = band.lowerEdge.last!
+        let result = buildEyelinerPath(spine: spine, lidSpan: lidSpan,
+                                       eyeCenter: eyeCenter)
 
-        let ref = smoothedSpine[max(0, smoothedSpine.count - min(3, smoothedSpine.count))]
-
-        // Tangent along the eyeliner body
-        var dx = outerU.x - ref.x
-        var dy = outerU.y - ref.y
-        let dLen = max(1, hypot(dx, dy))
-        dx /= dLen
-        dy /= dLen
-
-        if wingGoesRight {
-            if dx < 0 {
-                dx = -dx
-                dy = -dy
-            }
-        } else {
-            if dx > 0 {
-                dx = -dx
-                dy = -dy
-            }
-        }
-
-        // One consistent normal
-        let nx = -dy
-        let ny = dx
-
-        // KEEP YOUR CURRENT SHAPE VALUES
-        let bodyExtension = lidSpan * (0.18 + 0.04 * intensity)
-        let wLen = lidSpan * (0.10 + 0.16 * intensity)
-        let wLift = lidSpan * (0.06 + 0.02 * intensity)
-        let wedgeDepth = max(3.5, lidSpan * (0.085 + 0.030 * intensity))
-
-        // Move the whole outer piece in one local frame
-        var extendedOuterU = CGPoint(
-            x: outerU.x + dx * bodyExtension,
-            y: outerU.y + dy * bodyExtension * 0.75
-        )
-
-        let extendedOuterL = CGPoint(
-            x: outerL.x + dx * bodyExtension,
-            y: outerL.y + dy * bodyExtension * 0.15
-        )
-
-        var wingTip = CGPoint(
-            x: extendedOuterU.x + dx * wLen,
-            y: extendedOuterU.y + wLift
-        )
-
-        var wedgeBase = CGPoint(
-            x: extendedOuterL.x - dx * lidSpan * 0.04,
-            y: extendedOuterU.y + wedgeDepth
-        )
-
-        if state.hasValidShape {
-            let a = shapeSmoothingAlpha
-
-            let smoothedOuterU = lerp(state.lastOuterU, outerU, a)
-            let smoothedOuterL = lerp(state.lastOuterL, outerL, a)
-            extendedOuterU = lerp(state.lastExtendedOuterU, extendedOuterU, a)
-            wingTip = lerp(state.lastWingTip, wingTip, a)
-            wedgeBase = lerp(state.lastWedgeBase, wedgeBase, a)
-
-            // Shift the band edges by the same delta so the whole outer piece moves together
-            let deltaUpper = CGPoint(
-                x: smoothedOuterU.x - outerU.x,
-                y: smoothedOuterU.y - outerU.y
-            )
-
-            let deltaLower = CGPoint(
-                x: smoothedOuterL.x - outerL.x,
-                y: smoothedOuterL.y - outerL.y
-            )
-
-            band.upperEdge = band.upperEdge.enumerated().map { index, pt in
-                if index >= max(0, band.upperEdge.count - 3) {
-                    return CGPoint(x: pt.x + deltaUpper.x, y: pt.y + deltaUpper.y)
-                }
-                return pt
-            }
-
-            band.lowerEdge = band.lowerEdge.enumerated().map { index, pt in
-                if index >= max(0, band.lowerEdge.count - 3) {
-                    return CGPoint(x: pt.x + deltaLower.x, y: pt.y + deltaLower.y)
-                }
-                return pt
-            }
-        }
-
-        state.lastGoodBand = band
-        state.lastOuterU = outerU
-        state.lastOuterL = outerL
-        state.lastExtendedOuterU = extendedOuterU
-        state.lastWingTip = wingTip
-        state.lastWedgeBase = wedgeBase
-        state.hasValidShape = true
-
-        path.addPath(
-            closedBand(
-                band: band,
-                outerU: outerU,
-                extendedOuterU: extendedOuterU,
-                wedgeBase: wedgeBase,
-                wingTip: wingTip
-            )
-        )
+        state.lastGoodPath   = result
+        state.hasValidShape  = true
+        path.addPath(result)
     }
 
-    // MARK: - Stable spine
+    // MARK: - Build spine (inner → outer, screen coords)
 
     private func buildSpine(
         eye: [CGPoint],
         convert: (CGPoint) -> CGPoint,
         wingGoesRight: Bool
     ) -> [CGPoint]? {
-        guard eye.count >= 8 else { return nil }
+        guard eye.count >= 5 else { return nil }
 
-        let upperNorm = upperArc(from: eye)
-        guard upperNorm.count >= 3 else { return nil }
+        let arc = upperArc(from: eye)
+        guard arc.count >= 3 else { return nil }
 
-        var pts = upperNorm.map(convert)
-        pts = deduplicate(pts, minSpacing: 1.0)
+        var pts = arc.map(convert)
+        pts = deduplicate(pts, minGap: 1.0)
         guard pts.count >= 3 else { return nil }
 
-        let shouldReverse = wingGoesRight ? (pts.first!.x > pts.last!.x) : (pts.first!.x < pts.last!.x)
-        if shouldReverse {
-            pts.reverse()
-        }
+        // Ensure spine runs inner-corner → outer-corner.
+        let shouldReverse = wingGoesRight
+            ? (pts.first!.x > pts.last!.x)
+            : (pts.first!.x < pts.last!.x)
+        if shouldReverse { pts.reverse() }
 
         return movingAverage(pts, window: 3)
     }
 
     private func upperArc(from eye: [CGPoint]) -> [CGPoint] {
-        // If we receive fewer than 12 points the caller already passed
-        // a pre-extracted upper lid — return it unchanged.
+        // Pre-extracted upper lid (< 12 pts) → return as-is.
         guard eye.count >= 12 else { return eye }
 
         let half = eye.count / 2
-        let arc1 = Array(eye[0..<half])
-        let arc2 = Array(eye[half..<eye.count])
-
-        let avg1 = arc1.map(\.y).reduce(0, +) / CGFloat(max(arc1.count, 1))
-        let avg2 = arc2.map(\.y).reduce(0, +) / CGFloat(max(arc2.count, 1))
-
-        return avg1 > avg2 ? arc1 : arc2
+        let a1 = Array(eye[0..<half])
+        let a2 = Array(eye[half..<eye.count])
+        let avg1 = a1.map(\.y).reduce(0, +) / CGFloat(max(a1.count, 1))
+        let avg2 = a2.map(\.y).reduce(0, +) / CGFloat(max(a2.count, 1))
+        return avg1 > avg2 ? a1 : a2
     }
 
-    // MARK: - Band construction
+    // MARK: - Eyeliner path (band + wing)
 
-    private func buildBand(spine: [CGPoint], lidSpan: CGFloat, intensity: CGFloat) -> Band {
-        let maxThick = max(2.5, min(lidSpan * (0.045 + 0.025 * intensity), 7.0))
-        let drop = max(1.5, lidSpan * 0.025)
+    private func buildEyelinerPath(
+        spine: [CGPoint],
+        lidSpan: CGFloat,
+        eyeCenter: CGPoint
+    ) -> CGPath {
+        let n = spine.count
 
-        var upper: [CGPoint] = []
-        var lower: [CGPoint] = []
-        upper.reserveCapacity(spine.count)
-        lower.reserveCapacity(spine.count)
+        // ── 1. Per-point tangent & normal ────────────────────────────────────
+        var tangents = [CGPoint](repeating: .zero, count: n)
+        var normals  = [CGPoint](repeating: .zero, count: n)
 
-        for (i, p) in spine.enumerated() {
-            let t = CGFloat(i) / CGFloat(max(spine.count - 1, 1))
-            let taper = smoothStep(0.5, 0.70, t)
-            let boost = 1.0 + 0.65 * smoothStep(0.62, 1.0, t)
+        for i in 0..<n {
+            let prev = i > 0     ? spine[i - 1] : spine[i]
+            let next = i < n - 1 ? spine[i + 1] : spine[i]
+            var tx = next.x - prev.x
+            var ty = next.y - prev.y
+            let len = max(0.001, hypot(tx, ty))
+            tx /= len; ty /= len
+            tangents[i] = CGPoint(x: tx, y: ty)
+
+            // Pick the perpendicular that points toward the eye centre.
+            var nx = -ty, ny = tx
+            let toCX = eyeCenter.x - spine[i].x
+            let toCY = eyeCenter.y - spine[i].y
+            if nx * toCX + ny * toCY < 0 { nx = -nx; ny = -ny }
+            normals[i] = CGPoint(x: nx, y: ny)
+        }
+
+        // ── 2. Upper / lower edges (perpendicular to spine) ─────────────────
+        // Geometry is fixed — intensity does NOT affect it.
+        let maxThick = max(2.0, min(lidSpan * 0.055, 6.0))
+        let drop     = max(1.0, lidSpan * 0.015)
+
+        var upper = [CGPoint](repeating: .zero, count: n)
+        var lower = [CGPoint](repeating: .zero, count: n)
+
+        for i in 0..<n {
+            let t     = CGFloat(i) / CGFloat(max(n - 1, 1))
+            let taper = smoothStep(0.15, 0.55, t)
+            let boost = 1.0 + 0.4 * smoothStep(0.55, 1.0, t)
             let thick = maxThick * taper * boost
 
-            let adaptiveDrop = drop * (1.2 - 0.3 * t)
-            let base = CGPoint(x: p.x, y: p.y + adaptiveDrop)
+            let p  = spine[i]
+            let nm = normals[i]
 
-            upper.append(base)
-            lower.append(CGPoint(x: base.x, y: base.y + thick))
+            upper[i] = CGPoint(x: p.x + nm.x * drop,
+                               y: p.y + nm.y * drop)
+            lower[i] = CGPoint(x: p.x + nm.x * (drop + thick),
+                               y: p.y + nm.y * (drop + thick))
         }
 
-        return Band(upperEdge: upper, lowerEdge: lower)
-    }
+        // ── 3. Wing ─────────────────────────────────────────────────────────
+        let outerT  = tangents[n - 1]
+        let outerN  = normals[n - 1]
+        let outerU  = upper[n - 1]
+        let outerL  = lower[n - 1]
+        let outerMid = CGPoint(x: (outerU.x + outerL.x) / 2,
+                               y: (outerU.y + outerL.y) / 2)
 
-    // MARK: - Wing shape
+        let wingLen  = lidSpan * 0.12
+        let wingLift = lidSpan * 0.05
 
-    private func closedBand(
-        band: Band,
-        outerU: CGPoint,
-        extendedOuterU: CGPoint,
-        wedgeBase: CGPoint,
-        wingTip: CGPoint
-    ) -> CGPath {
-        let path = CGMutablePath()
-
-        let innerTrimCount = max(1, Int(CGFloat(band.upperEdge.count) * 0.18))
-        let trimmedUpper = Array(band.upperEdge.dropFirst(innerTrimCount))
-        let trimmedLower = Array(band.lowerEdge.dropFirst(innerTrimCount))
-
-        guard !trimmedUpper.isEmpty, !trimmedLower.isEmpty else { return path }
-
-        path.move(to: trimmedUpper[0])
-
-        var prev = trimmedUpper[0]
-        for pt in trimmedUpper.dropFirst() {
-            let mid = CGPoint(x: (prev.x + pt.x) / 2, y: (prev.y + pt.y) / 2)
-            path.addQuadCurve(to: mid, control: prev)
-            prev = pt
-        }
-
-        path.addLine(to: outerU)
-        path.addLine(to: extendedOuterU)
-        path.addLine(to: wingTip)
-        path.addLine(to: wedgeBase)
-
-        let lowerReturn = Array(trimmedLower.dropLast().reversed())
-        prev = wedgeBase
-
-        for pt in lowerReturn {
-            let mid = CGPoint(x: (prev.x + pt.x) / 2, y: (prev.y + pt.y) / 2)
-            path.addQuadCurve(to: mid, control: prev)
-            prev = pt
-        }
-
-        path.addLine(to: trimmedLower[0])
-        path.closeSubpath()
-
-        return path
-    }
-
-    // MARK: - Stability helpers
-
-    private func smoothPoints(_ current: [CGPoint], previous: [CGPoint], alpha: CGFloat) -> [CGPoint] {
-        guard current.count == previous.count, !previous.isEmpty else { return current }
-        return zip(current, previous).map { c, p in
-            CGPoint(
-                x: p.x + (c.x - p.x) * alpha,
-                y: p.y + (c.y - p.y) * alpha
-            )
-        }
-    }
-
-    private func smoothPolyline(_ current: [CGPoint], previous: [CGPoint], alpha: CGFloat) -> [CGPoint] {
-        guard current.count == previous.count, !previous.isEmpty else { return current }
-        return zip(current, previous).map { c, p in
-            lerp(p, c, alpha)
-        }
-    }
-
-    private func eyeOpenness(of eye: [CGPoint]) -> CGFloat {
-        guard eye.count >= 6 else { return 1.0 }
-
-        let minX = eye.map(\.x).min() ?? 0
-        let maxX = eye.map(\.x).max() ?? 1
-        let minY = eye.map(\.y).min() ?? 0
-        let maxY = eye.map(\.y).max() ?? 1
-
-        let width = max(maxX - minX, 0.0001)
-        let height = max(maxY - minY, 0.0001)
-        return height / width
-    }
-
-    private func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
-        CGPoint(
-            x: a.x + (b.x - a.x) * t,
-            y: a.y + (b.y - a.y) * t
+        // Wing tip: extend along tangent, lift AWAY from eye (−normal).
+        let wingTip = CGPoint(
+            x: outerMid.x + outerT.x * wingLen - outerN.x * wingLift,
+            y: outerMid.y + outerT.y * wingLen - outerN.y * wingLift
         )
+
+        // ── 4. Trace closed path ────────────────────────────────────────────
+        let result = CGMutablePath()
+
+        // Skip the invisible inner portion (thickness ≈ 0).
+        let startIdx = max(0, Int(CGFloat(n) * 0.15))
+
+        // Upper edge  inner → outer
+        result.move(to: upper[startIdx])
+        var prev = upper[startIdx]
+        for i in (startIdx + 1)..<n {
+            let mid = CGPoint(x: (prev.x + upper[i].x) / 2,
+                              y: (prev.y + upper[i].y) / 2)
+            result.addQuadCurve(to: mid, control: prev)
+            prev = upper[i]
+        }
+        result.addLine(to: outerU)
+
+        // Smooth wing:  outerU → wingTip → outerL
+        let ctrl1 = CGPoint(
+            x: outerU.x + outerT.x * wingLen * 0.65,
+            y: outerU.y + outerT.y * wingLen * 0.65
+        )
+        result.addQuadCurve(to: wingTip, control: ctrl1)
+
+        let ctrl2 = CGPoint(
+            x: outerL.x + outerT.x * wingLen * 0.35,
+            y: outerL.y + outerT.y * wingLen * 0.35
+        )
+        result.addQuadCurve(to: outerL, control: ctrl2)
+
+        // Lower edge  outer → inner
+        prev = outerL
+        for i in stride(from: n - 2, through: startIdx, by: -1) {
+            let mid = CGPoint(x: (prev.x + lower[i].x) / 2,
+                              y: (prev.y + lower[i].y) / 2)
+            result.addQuadCurve(to: mid, control: prev)
+            prev = lower[i]
+        }
+        result.addLine(to: lower[startIdx])
+
+        result.closeSubpath()
+        return result
     }
 
     // MARK: - Geometry helpers
 
-    private func deduplicate(_ pts: [CGPoint], minSpacing: CGFloat) -> [CGPoint] {
+    private func smooth(_ cur: [CGPoint], prev: [CGPoint], alpha: CGFloat) -> [CGPoint] {
+        guard cur.count == prev.count, !prev.isEmpty else { return cur }
+        return zip(cur, prev).map { c, p in
+            CGPoint(x: p.x + (c.x - p.x) * alpha,
+                    y: p.y + (c.y - p.y) * alpha)
+        }
+    }
+
+    private func eyeOpenness(_ eye: [CGPoint]) -> CGFloat {
+        guard eye.count >= 6 else { return 1.0 }
+        let xs = eye.map(\.x), ys = eye.map(\.y)
+        let w = max((xs.max() ?? 1) - (xs.min() ?? 0), 0.0001)
+        let h = max((ys.max() ?? 1) - (ys.min() ?? 0), 0.0001)
+        return h / w
+    }
+
+    private func centroid(_ pts: [CGPoint]) -> CGPoint {
+        let n = CGFloat(max(pts.count, 1))
+        return CGPoint(
+            x: pts.map(\.x).reduce(0, +) / n,
+            y: pts.map(\.y).reduce(0, +) / n
+        )
+    }
+
+    private func deduplicate(_ pts: [CGPoint], minGap: CGFloat) -> [CGPoint] {
         guard !pts.isEmpty else { return pts }
-        var result = [pts[0]]
+        var out = [pts[0]]
         for pt in pts.dropFirst() {
-            if abs(pt.x - result.last!.x) >= minSpacing {
-                result.append(pt)
+            if hypot(pt.x - out.last!.x, pt.y - out.last!.y) >= minGap {
+                out.append(pt)
             }
         }
-        return result
+        return out
     }
 
     private func movingAverage(_ pts: [CGPoint], window: Int) -> [CGPoint] {
@@ -431,54 +344,47 @@ final class EyelinerRenderer {
         return pts.indices.map { i in
             let lo = max(0, i - window / 2)
             let hi = min(pts.count - 1, i + window / 2)
-            let slice = pts[lo...hi]
-            let cx = slice.map(\.x).reduce(0, +) / CGFloat(slice.count)
-            let cy = slice.map(\.y).reduce(0, +) / CGFloat(slice.count)
-            return CGPoint(x: cx, y: cy)
+            let s  = pts[lo...hi]
+            return CGPoint(
+                x: s.map(\.x).reduce(0, +) / CGFloat(s.count),
+                y: s.map(\.y).reduce(0, +) / CGFloat(s.count)
+            )
         }
     }
 
-    private func smoothStep(_ edge0: CGFloat, _ edge1: CGFloat, _ x: CGFloat) -> CGFloat {
-        let t = max(0, min(1, (x - edge0) / max(edge1 - edge0, 0.0001)))
+    private func smoothStep(_ e0: CGFloat, _ e1: CGFloat, _ x: CGFloat) -> CGFloat {
+        let t = max(0, min(1, (x - e0) / max(e1 - e0, 0.0001)))
         return t * t * (3 - 2 * t)
     }
 
     // MARK: - Layer clearing
 
     private func clearLayer(_ layer: CAShapeLayer) {
-        layer.path = nil
-        layer.fillColor = NSColor.clear.cgColor
-        layer.strokeColor = NSColor.clear.cgColor
-        layer.shadowColor = NSColor.clear.cgColor
+        layer.path          = nil
+        layer.fillColor     = NSColor.clear.cgColor
+        layer.strokeColor   = NSColor.clear.cgColor
+        layer.shadowColor   = NSColor.clear.cgColor
         layer.shadowOpacity = 0
-        layer.shadowRadius = 0
-        layer.lineWidth = 0
+        layer.shadowRadius  = 0
+        layer.lineWidth     = 0
     }
 
     // MARK: - Coordinate conversion
 
-    private static func convertToLayerSpace(_ p: CGPoint, in layer: AVCaptureVideoPreviewLayer) -> CGPoint {
+    private static func toLayer(_ p: CGPoint,
+                                in layer: AVCaptureVideoPreviewLayer) -> CGPoint {
         layer.layerPointConverted(fromCaptureDevicePoint: CGPoint(x: p.x, y: 1 - p.y))
     }
 
-    private static func convertProcessedFrameNormalizedToView(
-        _ normalized: CGPoint,
-        contentExtent: CGRect,
-        viewBounds: CGRect
-    ) -> CGPoint {
-        let w = contentExtent.width
-        let h = contentExtent.height
+    private static func normToView(_ p: CGPoint,
+                                   extent: CGRect, bounds: CGRect) -> CGPoint {
+        let w = extent.width, h = extent.height
         guard w > 0, h > 0 else { return .zero }
-
-        let scale = max(viewBounds.width / w, viewBounds.height / h)
-        let drawW = w * scale
-        let drawH = h * scale
-        let ox = viewBounds.midX - drawW / 2
-        let oy = viewBounds.midY - drawH / 2
-
+        let scale = max(bounds.width / w, bounds.height / h)
+        let dw = w * scale, dh = h * scale
         return CGPoint(
-            x: ox + normalized.x * drawW,
-            y: oy + normalized.y * drawH
+            x: bounds.midX - dw / 2 + p.x * dw,
+            y: bounds.midY - dh / 2 + p.y * dh
         )
     }
 }
