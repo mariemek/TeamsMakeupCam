@@ -59,9 +59,14 @@ final class EyelinerRenderer {
 
         let path = CGMutablePath()
 
-        if !face.leftEye.isEmpty {
+        // Prefer the dedicated upper-lid points (9 pts, precise lid crease)
+        // over deriving the upper arc from the full eye contour (16 pts).
+        let leftEyePts  = face.leftUpperEyelidRaw.isEmpty  ? face.leftEye  : face.leftUpperEyelidRaw
+        let rightEyePts = face.rightUpperEyelidRaw.isEmpty ? face.rightEye : face.rightUpperEyelidRaw
+
+        if !leftEyePts.isEmpty {
             drawEye(
-                eye: face.leftEye,
+                eye: leftEyePts,
                 convert: convert,
                 intensity: intensity,
                 wingGoesRight: true,
@@ -70,9 +75,9 @@ final class EyelinerRenderer {
             )
         }
 
-        if !face.rightEye.isEmpty {
+        if !rightEyePts.isEmpty {
             drawEye(
-                eye: face.rightEye,
+                eye: rightEyePts,
                 convert: convert,
                 intensity: intensity,
                 wingGoesRight: false,
@@ -282,7 +287,9 @@ final class EyelinerRenderer {
     }
 
     private func upperArc(from eye: [CGPoint]) -> [CGPoint] {
-        guard eye.count >= 8 else { return eye }
+        // If we receive fewer than 12 points the caller already passed
+        // a pre-extracted upper lid — return it unchanged.
+        guard eye.count >= 12 else { return eye }
 
         let half = eye.count / 2
         let arc1 = Array(eye[0..<half])
