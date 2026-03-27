@@ -11,19 +11,22 @@ enum LashStyle: String, CaseIterable, Codable {
 
 // MARK: - PNGLashesRenderer
 //
-// Draws individual eyelash strands from the actual upper-eyelid landmark curve.
-// Each lash originates on the eyelid contour and grows perpendicular to it, so
-// the strip naturally follows the eye's arch and tracks every movement.
+// Overlays a lash-strip PNG image on each eye.
+//
+// The strip is loaded from the asset catalog ("lashes").  If the PNG has a
+// white background it is automatically converted to transparent (white → alpha).
+// If the asset is missing, a procedural fallback is generated at init.
+//
+// Each frame the renderer measures the upper eyelid from smoothed landmarks and
+// maps the image onto the eye with position / scale / rotation.  The left eye
+// uses a horizontally-flipped copy so the outer-corner fullness lands on the
+// correct side for both eyes.  Intensity controls layer opacity.
 //
 // Architecture
 // ─────────────
-//   containerLayer  (full-screen CALayer — receives the horizontal mirror
-//                    transform from PreviewContainerView like every other layer)
-//     ├── leftLashLayer   CAShapeLayer — rebuilt each frame for the left eye
-//     └── rightLashLayer  CAShapeLayer — rebuilt each frame for the right eye
-//
-// Per-frame work: sort + smooth points → Catmull-Rom expand → fill wedge path.
-// No allocations beyond the CGMutablePath; CAShapeLayer is reused.
+//   containerLayer  (full-screen CALayer, receives the global mirror transform)
+//     ├── leftLashLayer   CALayer — image overlay for the left eye
+//     └── rightLashLayer  CALayer — image overlay for the right eye
 
 final class PNGLashesRenderer {
 
@@ -31,34 +34,50 @@ final class PNGLashesRenderer {
     let containerLayer = CALayer()
 
     // MARK: - Private
-    private let leftLashLayer  = CAShapeLayer()
-    private let rightLashLayer = CAShapeLayer()
-    private var leftSmooth  = EyelidSmoothing()
-    private var rightSmooth = EyelidSmoothing()
+    private let leftLashLayer  = CALayer()
+    private let rightLashLayer = CALayer()
+    private var leftSmooth  = TransformSmoothing()
+    private var rightSmooth = TransformSmoothing()
+
+    /// The lash-strip image (outer corner on the LEFT side of the image).
+    private let lashImage: CGImage
+    /// Image size in points for layer bounds.
+    private let imageSize: CGSize
 
     // MARK: - Init
 
     init() {
+        // Try loading the bundled PNG from the asset catalog.
+        if let nsImage = NSImage(named: "lashes"),
+           let tiff = nsImage.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiff),
+           let cg = bitmap.cgImage {
+            // The reference image has a white background — convert white → transparent.
+            self.lashImage = Self.whiteToAlpha(cg)
+            self.imageSize = CGSize(width: cg.width, height: cg.height)
+        } else {
+            // Fallback: procedurally generate a lash strip.
+            let w: CGFloat = 512, h: CGFloat = 180
+            self.lashImage = Self.generateLashStrip(width: w, height: h)
+            self.imageSize = CGSize(width: w, height: h)
+        }
+
         containerLayer.backgroundColor = NSColor.clear.cgColor
         containerLayer.masksToBounds   = false
 
-        for layer in [leftLashLayer, rightLashLayer] {
-            // Filled wedge shapes — no stroke needed.
-            layer.fillColor     = NSColor(calibratedRed: 0.05, green: 0.04,
-                                          blue: 0.06, alpha: 1.0).cgColor
-            layer.strokeColor   = nil
-            layer.isHidden      = true
-            layer.masksToBounds = false
-            // Shadow softens the lash edges and adds depth so they blend into skin.
-            layer.shadowColor   = NSColor.black.cgColor
-            layer.shadowOffset  = .zero
-            layer.shadowRadius  = 2.5
-            layer.shadowOpacity = 0   // set per-frame proportional to intensity
-            containerLayer.addSublayer(layer)
+        for lashLayer in [leftLashLayer, rightLashLayer] {
+            lashLayer.contents        = lashImage
+            lashLayer.contentsGravity = .resizeAspect
+            lashLayer.isHidden        = true
+            lashLayer.masksToBounds   = false
+            // Anchor at the bottom-center: the baseline of the lash strip
+            // sits on the eyelid, and strands extend upward.
+            lashLayer.anchorPoint     = CGPoint(x: 0.5, y: 1.0)
+            containerLayer.addSublayer(lashLayer)
         }
     }
 
-    // MARK: - Public update  (called every frame from updateOverlay)
+    // MARK: - Public update (called every frame)
 
     func update(
         with landmarks: [FaceLandmarks],
@@ -80,290 +99,252 @@ final class PNGLashesRenderer {
             convert = { Self.fromPreviewLayer($0, in: previewLayer) }
         }
 
-        // Prefer dedicated upper-eyelid points; fall back to full eye contour.
         let leftEyelid  = face.leftUpperEyelid.isEmpty  ? face.leftEye  : face.leftUpperEyelid
         let rightEyelid = face.rightUpperEyelid.isEmpty ? face.rightEye : face.rightUpperEyelid
 
+        // flipImage: true for the left eye so the outer corner (fuller end)
+        // lands on the lateral side of each eye.
         updateEye(layer: leftLashLayer,  state: &leftSmooth,
-                  eyelid: leftEyelid,   convert: convert,
-                  intensity: intensity, style: style)
+                  eyelid: leftEyelid,  fullEye: face.leftEye,
+                  convert: convert, intensity: intensity, flipImage: true)
 
         updateEye(layer: rightLashLayer, state: &rightSmooth,
-                  eyelid: rightEyelid,  convert: convert,
-                  intensity: intensity, style: style)
+                  eyelid: rightEyelid, fullEye: face.rightEye,
+                  convert: convert, intensity: intensity, flipImage: false)
     }
 
     func hide() {
         leftLashLayer.isHidden  = true
         rightLashLayer.isHidden = true
-        // Reset smoothing so re-appearance doesn't lerp from stale state.
-        leftSmooth  = EyelidSmoothing()
-        rightSmooth = EyelidSmoothing()
+        leftSmooth  = TransformSmoothing()
+        rightSmooth = TransformSmoothing()
     }
 
     // MARK: - Per-eye update
 
     private func updateEye(
-        layer: CAShapeLayer,
-        state: inout EyelidSmoothing,
+        layer: CALayer,
+        state: inout TransformSmoothing,
         eyelid: [CGPoint],
+        fullEye: [CGPoint],
         convert: (CGPoint) -> CGPoint,
         intensity: CGFloat,
-        style: LashStyle
+        flipImage: Bool
     ) {
         guard eyelid.count >= 2 else { layer.isHidden = true; return }
 
-        // 1. Convert to layer space and sort left → right.
-        //    Sorting ensures consistent Catmull-Rom interpolation regardless of
-        //    the order MediaPipe returns the contour points.
         let rawPts = eyelid.map(convert).sorted { $0.x < $1.x }
+        guard rawPts.count >= 2 else { layer.isHidden = true; return }
 
-        // 2. Per-point EMA smoothing eliminates landmark jitter.
-        let smoothPts = state.update(rawPts)
+        let leftPt  = rawPts.first!
+        let rightPt = rawPts.last!
 
-        // 3. Eye width drives all size-dependent parameters.
-        let eyeWidth = hypot(smoothPts.last!.x - smoothPts.first!.x,
-                             smoothPts.last!.y - smoothPts.first!.y)
+        let eyeWidth = hypot(rightPt.x - leftPt.x, rightPt.y - leftPt.y)
         guard eyeWidth > 4 else { layer.isHidden = true; return }
 
-        // 4. Catmull-Rom expand: ~8-16 landmarks → 26-40 dense base points.
-        let targetCount: Int
-        switch style {
-        case .natural:  targetCount = 28
-        case .wispy:    targetCount = 22
-        case .dramatic: targetCount = 38
+        // Midpoint of the upper eyelid.
+        let midX = (leftPt.x + rightPt.x) / 2
+        let midY = (leftPt.y + rightPt.y) / 2
+
+        // Angle of the lash line (inner→outer).
+        let angle = atan2(rightPt.y - leftPt.y, rightPt.x - leftPt.x)
+
+        // Eye center — used to shift lashes upward (away from pupil).
+        let allPts = fullEye.map(convert)
+        let eyeCenterY: CGFloat
+        if allPts.count >= 3 {
+            eyeCenterY = allPts.map(\.y).reduce(0, +) / CGFloat(allPts.count)
+        } else {
+            eyeCenterY = midY
         }
-        let basePts = catmullRomExpand(smoothPts, targetCount: targetCount)
 
-        // 5. Build filled wedge path.
-        let path = buildLashPath(basePts: basePts, eyeWidth: eyeWidth,
-                                  style: style)
+        // Perpendicular to the lash line, pointing away from eye center.
+        let perpX = -sin(angle)
+        let perpY =  cos(angle)
+        let testPtY = midY + perpY * 5
+        let awaySign: CGFloat = (testPtY < eyeCenterY) ? 1 : -1
+        let verticalOffset = eyeWidth * 0.04 * awaySign
 
-        // 6. Apply to layer — suppress implicit animations.
+        let posX = midX + perpX * verticalOffset
+        let posY = midY + perpY * verticalOffset
+
+        let smoothed = state.update(x: posX, y: posY, width: eyeWidth, angle: angle)
+
+        // Scale image to match eye width (slight overshoot covers the corners).
+        let scaleX = smoothed.width * 1.15 / imageSize.width
+        let scaleY = scaleX
+        let flipScaleX = flipImage ? -scaleX : scaleX
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.isHidden      = false
-        layer.path          = path
-        // opacity scales the whole layer: at 100 % intensity lashes are fully opaque.
-        layer.opacity       = Float(intensity)
-        layer.shadowOpacity = Float(0.40 * intensity)
+
+        layer.isHidden = false
+        layer.opacity  = Float(intensity)
+        layer.bounds   = CGRect(origin: .zero, size: imageSize)
+        layer.position = CGPoint(x: smoothed.x, y: smoothed.y)
+
+        var t = CATransform3DIdentity
+        t = CATransform3DRotate(t, smoothed.angle, 0, 0, 1)
+        t = CATransform3DScale(t, flipScaleX, scaleY, 1)
+        layer.transform = t
+
         CATransaction.commit()
     }
 
-    // MARK: - Lash path construction
+    // MARK: - White-to-alpha conversion
     //
-    // Each lash is a filled triangular wedge:
-    //
-    //              tip  ← pointed apex
-    //             /   \
-    //   leftBase ·─────· rightBase   ← sits on the eyelid curve
-    //
-    // The wedge width is measured along the eyelid tangent; the height (length)
-    // is measured along the outward normal (CCW perpendicular to the tangent).
-    //
-    // Normal direction:
-    //   In macOS CALayer coordinates (y = 0 at bottom), the upper eyelid arches
-    //   upward (high y).  For tangent (tx, ty), the CCW perpendicular is (−ty, tx).
-    //   This correctly points "above" the arch at every position:
-    //     • peak (tx≈1, ty≈0)  → normal (0,  1) = straight up          ✓
-    //     • ascending (ty > 0) → normal (−ty, tx) = upper-left         ✓
-    //     • descending (ty < 0)→ normal (−ty, tx) = upper-right        ✓
-    //
-    // Lean:
-    //   lean = (t − 0.5) × leanStrength.  After the container mirror (scale −1 in x):
-    //     t = 0 (outer corner) → leans away from face center ✓
-    //     t = 1 (inner corner) → leans slightly inward ✓ (matches real lashes)
+    // Converts a white-background PNG into a transparency-background image.
+    // For each pixel: alpha = 1 − luminance.  Dark lash strands stay opaque,
+    // white background becomes fully transparent.
 
-    private func buildLashPath(
-        basePts: [CGPoint],
-        eyeWidth: CGFloat,
-        style: LashStyle
-    ) -> CGPath {
-        let path   = CGMutablePath()
-        let n      = basePts.count
-        guard n >= 2 else { return path }
+    private static func whiteToAlpha(_ source: CGImage) -> CGImage {
+        let w = source.width, h = source.height
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bytesPerRow = w * 4
+        guard let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return source }
 
-        var rng    = SeededRNG(seed: style.rawValue.hashValue)
-        let maxLen = eyeWidth * maxLengthRatio(style)
-        let lean0  = leanStrength(style)
-        let hw0    = eyeWidth * rootHalfWidthRatio(style)   // half root-width
+        // Draw the source image into our writable context.
+        ctx.draw(source, in: CGRect(x: 0, y: 0, width: w, height: h))
 
-        for i in 0..<n {
-            let t      = CGFloat(i) / CGFloat(n - 1)
-            let root   = basePts[i]
-            let tan    = tangentAt(i, in: basePts)   // unit tangent along eyelid
+        guard let data = ctx.data else { return source }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
 
-            // Outward normal (CCW perpendicular): points above the eyelid arch.
-            let nx = -tan.y
-            let ny =  tan.x
+        for i in 0..<(w * h) {
+            let offset = i * 4
+            let r = CGFloat(pixels[offset])     / 255.0
+            let g = CGFloat(pixels[offset + 1]) / 255.0
+            let b = CGFloat(pixels[offset + 2]) / 255.0
 
-            // ── Length ────────────────────────────────────────────────────
-            // Bell envelope peaks near t ≈ 0.55 (outer-center region).
-            let env = sin(t * .pi) * (0.55 + 0.45 * smoothStep(0.30, 0.70, t))
-            let lenFrac: CGFloat
-            switch style {
-            case .natural:
-                lenFrac = env * (0.60 + rng.next(0, 0.40))
-            case .wispy:
-                // Irregular cluster variation — sin at ~6.5× gives 6-7 groups.
-                let cluster = abs(sin(t * .pi * 6.5))
-                lenFrac = max(0.05, env * (0.40 + 0.60 * cluster) + rng.next(0, 0.20))
-            case .dramatic:
-                lenFrac = env * (0.78 + rng.next(0, 0.22))
-            }
-            let lashLen = maxLen * lenFrac
-            guard lashLen > 1.5 else { continue }
+            // Luminance (perceived brightness).
+            let lum = 0.299 * r + 0.587 * g + 0.114 * b
 
-            // ── Lean ──────────────────────────────────────────────────────
-            // Positive lean → lash tilts toward the outer corner (post-mirror).
-            let lean = (t - 0.5) * lean0
-            let ldx  = nx + lean * tan.x
-            let ldy  = ny + lean * tan.y
-            let ll   = max(0.001, hypot(ldx, ldy))
-            let dirX = ldx / ll
-            let dirY = ldy / ll
+            // New alpha: dark pixels → opaque, light pixels → transparent.
+            let newAlpha = max(0, min(1, 1.0 - lum))
 
-            // ── Wedge geometry ────────────────────────────────────────────
-            let tipX = root.x + dirX * lashLen
-            let tipY = root.y + dirY * lashLen
-
-            // Half-width varies slightly per lash for an organic look.
-            let hw   = hw0 * (0.80 + rng.next(0, 0.40))
-            let lbX  = root.x - tan.x * hw       // left base
-            let lbY  = root.y - tan.y * hw
-            let rbX  = root.x + tan.x * hw       // right base
-            let rbY  = root.y + tan.y * hw
-
-            // Filled triangle: leftBase → tip → rightBase → close.
-            path.move(to: CGPoint(x: lbX, y: lbY))
-            path.addLine(to: CGPoint(x: tipX, y: tipY))
-            path.addLine(to: CGPoint(x: rbX,  y: rbY))
-            path.closeSubpath()
-        }
-
-        // ── Wispy accent pass ─────────────────────────────────────────────
-        // ~10 extra-long, thinner lashes scattered across the lid for that
-        // feathery, non-uniform look of the reference image.
-        if style == .wispy {
-            var rng2 = SeededRNG(seed: style.rawValue.hashValue &+ 0xABCD_EF01)
-            for _ in 0..<10 {
-                let idx  = Int(rng2.next(0, CGFloat(n - 1)))
-                let t    = CGFloat(idx) / CGFloat(n - 1)
-                let root = basePts[idx]
-                let tan  = tangentAt(idx, in: basePts)
-                let nx   = -tan.y, ny = tan.x
-                let accentLen = maxLen * (1.10 + rng2.next(0, 0.55))
-                let lean = (t - 0.5) * lean0 * 1.30
-                let ldx  = nx + lean * tan.x
-                let ldy  = ny + lean * tan.y
-                let ll   = max(0.001, hypot(ldx, ldy))
-                let dX   = ldx / ll, dY = ldy / ll
-                let tipX = root.x + dX * accentLen
-                let tipY = root.y + dY * accentLen
-                let hw   = hw0 * 0.55           // thinner accent lashes
-                path.move(to: CGPoint(x: root.x - tan.x * hw, y: root.y - tan.y * hw))
-                path.addLine(to: CGPoint(x: tipX, y: tipY))
-                path.addLine(to: CGPoint(x: root.x + tan.x * hw, y: root.y + tan.y * hw))
-                path.closeSubpath()
+            // Premultiplied alpha: RGB values are multiplied by alpha.
+            let a = UInt8(newAlpha * 255)
+            if newAlpha < 0.01 {
+                pixels[offset]     = 0
+                pixels[offset + 1] = 0
+                pixels[offset + 2] = 0
+                pixels[offset + 3] = 0
+            } else {
+                // Darken the lash color slightly for richness.
+                let darkR = UInt8(min(255, r * 0.15 * newAlpha * 255))
+                let darkG = UInt8(min(255, g * 0.12 * newAlpha * 255))
+                let darkB = UInt8(min(255, b * 0.14 * newAlpha * 255))
+                pixels[offset]     = darkR
+                pixels[offset + 1] = darkG
+                pixels[offset + 2] = darkB
+                pixels[offset + 3] = a
             }
         }
 
-        return path
+        return ctx.makeImage() ?? source
     }
 
-    // MARK: - Catmull-Rom expansion
+    // MARK: - Procedural fallback
     //
-    // Expands a sparse landmark array (~8-16 pts) to `targetCount` evenly
-    // distributed points so every lash has a well-defined base position.
+    // Generates a lash strip if the asset catalog image is missing.
+    // Draws curved strands: fuller on the right (outer corner), tapering left.
 
-    private func catmullRomExpand(_ pts: [CGPoint], targetCount: Int) -> [CGPoint] {
-        guard pts.count >= 2 else { return pts }
-        guard pts.count < targetCount else { return pts }
+    private static func generateLashStrip(width: CGFloat, height: CGFloat) -> CGImage {
+        let w = Int(width), h = Int(height)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: w * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
 
-        let n        = pts.count
-        let segments = n - 1
-        var result   = [CGPoint]()
-        result.reserveCapacity(targetCount)
+        ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setStrokeColor(NSColor(calibratedRed: 0.06, green: 0.04,
+                                    blue: 0.05, alpha: 0.92).cgColor)
 
-        for i in 0..<segments {
-            let p0 = pts[max(0, i - 1)]
-            let p1 = pts[i]
-            let p2 = pts[min(n - 1, i + 1)]
-            let p3 = pts[min(n - 1, i + 2)]
+        let baseline: CGFloat = 10
+        let strandCount = 60
+        let maxLenFrac:  CGFloat = 0.82
+        let baseWidth:   CGFloat = 1.2
+        let curlAmount:  CGFloat = 0.30
 
-            // Distribute target samples proportionally across segments.
-            let segStart = i       * (targetCount - 1) / segments
-            let segEnd   = (i + 1) * (targetCount - 1) / segments
-            let count    = segEnd - segStart
+        var rng = SeededRNG(seed: 0xBEEF)
 
-            for s in 0..<count {
-                let t = CGFloat(s) / CGFloat(max(1, count))
-                result.append(catmullRomPt(t: t, p0: p0, p1: p1, p2: p2, p3: p3))
-            }
+        for i in 0..<strandCount {
+            let t = CGFloat(i) / CGFloat(strandCount - 1)
+            let jitter = rng.next(-4, 4)
+            let x = 12 + t * (width - 24) + jitter
+
+            let envelope = 0.15 + 0.85 * smoothstepStatic(t)
+            let lenVar = rng.next(0.82, 1.08)
+            let lashLen = height * maxLenFrac * envelope * lenVar
+            guard lashLen > 4 else { continue }
+
+            let baseAngle: CGFloat = .pi / 2
+            let fanAngle = (t - 0.4) * 0.35
+            let angleVar = rng.next(-0.06, 0.06)
+            let angle = baseAngle + fanAngle + angleVar
+
+            let cosA = cos(angle), sinA = sin(angle)
+            let tipX = x + cosA * lashLen
+            let tipY = baseline + sinA * lashLen
+
+            let curlOffset = lashLen * curlAmount * (0.6 + 0.4 * t)
+            let ctrlX = x + cosA * lashLen * 0.55 - sinA * curlOffset * 0.3
+            let ctrlY = baseline + sinA * lashLen * 0.55 + cosA * curlOffset
+
+            let strokeW = baseWidth * (0.7 + 0.6 * rng.next(0.5, 1.0))
+            ctx.setLineWidth(strokeW)
+            ctx.setLineCap(.round)
+            ctx.setAlpha(0.85 + rng.next(0, 0.15))
+
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: x, y: baseline))
+            path.addQuadCurve(
+                to: CGPoint(x: tipX, y: tipY),
+                control: CGPoint(x: ctrlX, y: ctrlY)
+            )
+            ctx.addPath(path)
+            ctx.strokePath()
         }
-        result.append(pts.last!)
-        return result
-    }
 
-    private func catmullRomPt(t: CGFloat,
-                               p0: CGPoint, p1: CGPoint,
-                               p2: CGPoint, p3: CGPoint) -> CGPoint {
-        let t2 = t * t, t3 = t2 * t
-        let x  = 0.5 * ((2*p1.x) + (-p0.x+p2.x)*t
-                       + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2
-                       + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3)
-        let y  = 0.5 * ((2*p1.y) + (-p0.y+p2.y)*t
-                       + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2
-                       + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
-        return CGPoint(x: x, y: y)
-    }
+        // Extra wispy accents.
+        ctx.setLineWidth(0.8)
+        for _ in 0..<12 {
+            let t = rng.next(0.35, 1.0)
+            let x = 12 + t * (width - 24) + rng.next(-3, 3)
+            let envelope = 0.15 + 0.85 * smoothstepStatic(t)
+            let lashLen = height * maxLenFrac * envelope * rng.next(1.05, 1.25)
+            let angle: CGFloat = .pi / 2 + (t - 0.4) * 0.35 + rng.next(-0.08, 0.08)
+            let cosA = cos(angle), sinA = sin(angle)
+            let tipX = x + cosA * lashLen
+            let tipY = baseline + sinA * lashLen
+            let curlOffset = lashLen * curlAmount * 0.9
+            let ctrlX = x + cosA * lashLen * 0.5 - sinA * curlOffset * 0.25
+            let ctrlY = baseline + sinA * lashLen * 0.5 + cosA * curlOffset
 
-    // MARK: - Tangent
-
-    /// Unit tangent at index i along pts (central differences, clamped at ends).
-    private func tangentAt(_ i: Int, in pts: [CGPoint]) -> CGPoint {
-        let prev = pts[max(0, i - 1)]
-        let next = pts[min(pts.count - 1, i + 1)]
-        let dx   = next.x - prev.x
-        let dy   = next.y - prev.y
-        let len  = max(0.001, hypot(dx, dy))
-        return CGPoint(x: dx / len, y: dy / len)
-    }
-
-    // MARK: - Style parameters
-
-    /// Maximum lash length as a fraction of eye width.
-    private func maxLengthRatio(_ s: LashStyle) -> CGFloat {
-        switch s {
-        case .natural:  return 0.24
-        case .wispy:    return 0.30
-        case .dramatic: return 0.38
+            ctx.setAlpha(0.70 + rng.next(0, 0.20))
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: x, y: baseline))
+            path.addQuadCurve(
+                to: CGPoint(x: tipX, y: tipY),
+                control: CGPoint(x: ctrlX, y: ctrlY)
+            )
+            ctx.addPath(path)
+            ctx.strokePath()
         }
+
+        return ctx.makeImage()!
     }
 
-    /// How strongly lashes lean toward the corners (0 = straight up).
-    private func leanStrength(_ s: LashStyle) -> CGFloat {
-        switch s {
-        case .natural:  return 0.40
-        case .wispy:    return 0.55
-        case .dramatic: return 0.30
-        }
-    }
-
-    /// Root half-width as a fraction of eye width.
-    private func rootHalfWidthRatio(_ s: LashStyle) -> CGFloat {
-        switch s {
-        case .natural:  return 0.016
-        case .wispy:    return 0.012
-        case .dramatic: return 0.022
-        }
-    }
-
-    // MARK: - Math
-
-    private func smoothStep(_ e0: CGFloat, _ e1: CGFloat, _ x: CGFloat) -> CGFloat {
-        let t = max(0, min((x - e0) / (e1 - e0), 1))
-        return t * t * (3 - 2 * t)
+    private static func smoothstepStatic(_ t: CGFloat) -> CGFloat {
+        let c = max(0, min(1, t))
+        return c * c * (3 - 2 * c)
     }
 
     // MARK: - Coordinate conversion
@@ -386,29 +367,39 @@ final class PNGLashesRenderer {
     }
 }
 
-// MARK: - EyelidSmoothing
-//
-// Exponential moving average applied point-by-point across the eyelid array.
-// Resets on count change (landmark dropout / recovery) to avoid erratic jumps.
+// MARK: - TransformSmoothing
 
-private struct EyelidSmoothing {
-    private var pts:   [CGPoint] = []
-    private let alpha: CGFloat   = 0.42   // higher = more responsive, less smooth
+private struct TransformSmoothing {
+    private var smoothX:     CGFloat?
+    private var smoothY:     CGFloat?
+    private var smoothWidth: CGFloat?
+    private var smoothAngle: CGFloat?
+    private let alpha: CGFloat = 0.38
 
-    mutating func update(_ newPts: [CGPoint]) -> [CGPoint] {
-        guard !newPts.isEmpty else { return pts.isEmpty ? newPts : pts }
-        guard pts.count == newPts.count else { pts = newPts; return pts }
-        pts = zip(pts, newPts).map { old, new in
-            CGPoint(x: old.x + alpha * (new.x - old.x),
-                    y: old.y + alpha * (new.y - old.y))
+    struct Values {
+        let x, y, width, angle: CGFloat
+    }
+
+    mutating func update(x: CGFloat, y: CGFloat, width: CGFloat, angle: CGFloat) -> Values {
+        if let sx = smoothX {
+            smoothX     = sx + alpha * (x - sx)
+            smoothY     = smoothY! + alpha * (y - smoothY!)
+            smoothWidth = smoothWidth! + alpha * (width - smoothWidth!)
+            var da = angle - smoothAngle!
+            if da >  .pi { da -= 2 * .pi }
+            if da < -.pi { da += 2 * .pi }
+            smoothAngle = smoothAngle! + alpha * da
+        } else {
+            smoothX     = x
+            smoothY     = y
+            smoothWidth = width
+            smoothAngle = angle
         }
-        return pts
+        return Values(x: smoothX!, y: smoothY!, width: smoothWidth!, angle: smoothAngle!)
     }
 }
 
 // MARK: - SeededRNG
-//
-// Deterministic LCG so every style always produces the same lash pattern.
 
 private struct SeededRNG {
     private var state: UInt64
@@ -422,7 +413,6 @@ private struct SeededRNG {
         return state
     }
 
-    /// Uniform float in [lo, hi].
     mutating func next(_ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
         let norm = CGFloat(nextRaw() >> 11) / CGFloat(1 << 53)
         return lo + norm * (hi - lo)
