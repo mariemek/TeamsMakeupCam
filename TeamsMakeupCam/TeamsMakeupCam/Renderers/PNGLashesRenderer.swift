@@ -11,20 +11,20 @@ enum LashStyle: String, CaseIterable, Codable {
 
 // MARK: - PNGLashesRenderer
 //
-// Overlays a procedurally-generated lash-strip image on each eye.
+// Overlays a lash-strip PNG image on each eye.
 //
-// The strip is rendered once at init into a CGImage (transparent background,
-// dark lash strands, fuller at the outer corner, tapering toward the inner).
-// Each frame the renderer measures the upper eyelid from landmarks, smooths it
-// via EMA, and maps the image onto the eye with an affine transform (position,
-// scale, rotation).  The right eye uses a horizontally-flipped copy.
+// The strip is loaded from the asset catalog ("lashes").  If the PNG has a
+// white background it is automatically converted to transparent (white → alpha).
+// If the asset is missing, a procedural fallback is generated at init.
 //
-// This approach is inherently stable: the image shape never changes, only its
-// placement does, and placement is smoothed.  Intensity controls opacity.
+// Each frame the renderer measures the upper eyelid from smoothed landmarks and
+// maps the image onto the eye with position / scale / rotation.  The left eye
+// uses a horizontally-flipped copy so the outer-corner fullness lands on the
+// correct side for both eyes.  Intensity controls layer opacity.
 //
 // Architecture
 // ─────────────
-//   containerLayer  (full-screen CALayer, receives the mirror transform)
+//   containerLayer  (full-screen CALayer, receives the global mirror transform)
 //     ├── leftLashLayer   CALayer — image overlay for the left eye
 //     └── rightLashLayer  CALayer — image overlay for the right eye
 
@@ -39,32 +39,40 @@ final class PNGLashesRenderer {
     private var leftSmooth  = TransformSmoothing()
     private var rightSmooth = TransformSmoothing()
 
-    /// The generated lash-strip image (outer-corner-right orientation).
+    /// The lash-strip image (outer corner on the LEFT side of the image).
     private let lashImage: CGImage
     /// Image size in points for layer bounds.
     private let imageSize: CGSize
 
-    // Strip generation constants.
-    private static let stripWidth:  CGFloat = 512
-    private static let stripHeight: CGFloat = 180
-
     // MARK: - Init
 
     init() {
-        let img = Self.generateLashStrip(
-            width: Self.stripWidth, height: Self.stripHeight, style: .wispy)
-        self.lashImage = img
-        self.imageSize = CGSize(width: Self.stripWidth, height: Self.stripHeight)
+        // Try loading the bundled PNG from the asset catalog.
+        if let nsImage = NSImage(named: "lashes"),
+           let tiff = nsImage.tiffRepresentation,
+           let bitmap = NSBitmapImageRep(data: tiff),
+           let cg = bitmap.cgImage {
+            // The reference image has a white background — convert white → transparent.
+            self.lashImage = Self.whiteToAlpha(cg)
+            self.imageSize = CGSize(width: cg.width, height: cg.height)
+        } else {
+            // Fallback: procedurally generate a lash strip.
+            let w: CGFloat = 512, h: CGFloat = 180
+            self.lashImage = Self.generateLashStrip(width: w, height: h)
+            self.imageSize = CGSize(width: w, height: h)
+        }
 
         containerLayer.backgroundColor = NSColor.clear.cgColor
         containerLayer.masksToBounds   = false
 
         for lashLayer in [leftLashLayer, rightLashLayer] {
-            lashLayer.contents        = img
+            lashLayer.contents        = lashImage
             lashLayer.contentsGravity = .resizeAspect
             lashLayer.isHidden        = true
             lashLayer.masksToBounds   = false
-            lashLayer.anchorPoint     = CGPoint(x: 0.5, y: 1.0)  // bottom-center anchor
+            // Anchor at the bottom-center: the baseline of the lash strip
+            // sits on the eyelid, and strands extend upward.
+            lashLayer.anchorPoint     = CGPoint(x: 0.5, y: 1.0)
             containerLayer.addSublayer(lashLayer)
         }
     }
@@ -94,6 +102,8 @@ final class PNGLashesRenderer {
         let leftEyelid  = face.leftUpperEyelid.isEmpty  ? face.leftEye  : face.leftUpperEyelid
         let rightEyelid = face.rightUpperEyelid.isEmpty ? face.rightEye : face.rightUpperEyelid
 
+        // flipImage: true for the left eye so the outer corner (fuller end)
+        // lands on the lateral side of each eye.
         updateEye(layer: leftLashLayer,  state: &leftSmooth,
                   eyelid: leftEyelid,  fullEye: face.leftEye,
                   convert: convert, intensity: intensity, flipImage: true)
@@ -123,25 +133,23 @@ final class PNGLashesRenderer {
     ) {
         guard eyelid.count >= 2 else { layer.isHidden = true; return }
 
-        // Convert to view space and sort left→right.
         let rawPts = eyelid.map(convert).sorted { $0.x < $1.x }
         guard rawPts.count >= 2 else { layer.isHidden = true; return }
 
-        // Endpoints of the lash line.
         let leftPt  = rawPts.first!
         let rightPt = rawPts.last!
 
         let eyeWidth = hypot(rightPt.x - leftPt.x, rightPt.y - leftPt.y)
         guard eyeWidth > 4 else { layer.isHidden = true; return }
 
-        // Midpoint of the lash line.
+        // Midpoint of the upper eyelid.
         let midX = (leftPt.x + rightPt.x) / 2
         let midY = (leftPt.y + rightPt.y) / 2
 
-        // Angle of the lash line.
+        // Angle of the lash line (inner→outer).
         let angle = atan2(rightPt.y - leftPt.y, rightPt.x - leftPt.x)
 
-        // Compute eye center to shift lashes slightly upward (away from pupil).
+        // Eye center — used to shift lashes upward (away from pupil).
         let allPts = fullEye.map(convert)
         let eyeCenterY: CGFloat
         if allPts.count >= 3 {
@@ -149,24 +157,22 @@ final class PNGLashesRenderer {
         } else {
             eyeCenterY = midY
         }
-        // Offset along the perpendicular to the lash line, away from eye center.
+
+        // Perpendicular to the lash line, pointing away from eye center.
         let perpX = -sin(angle)
         let perpY =  cos(angle)
-        // Determine which direction is "away from eye center."
         let testPtY = midY + perpY * 5
-        let awaySign: CGFloat = (testPtY < eyeCenterY) ? 1 : -1  // on macOS, lower y = higher on screen
+        let awaySign: CGFloat = (testPtY < eyeCenterY) ? 1 : -1
         let verticalOffset = eyeWidth * 0.04 * awaySign
 
         let posX = midX + perpX * verticalOffset
         let posY = midY + perpY * verticalOffset
 
-        // Smooth the transform values.
         let smoothed = state.update(x: posX, y: posY, width: eyeWidth, angle: angle)
 
-        // Scale: image width → eye width, with a slight horizontal overshoot
-        // so the strip covers the full lash line including corners.
+        // Scale image to match eye width (slight overshoot covers the corners).
         let scaleX = smoothed.width * 1.15 / imageSize.width
-        let scaleY = scaleX  // uniform scale preserves proportions
+        let scaleY = scaleX
         let flipScaleX = flipImage ? -scaleX : scaleX
 
         CATransaction.begin()
@@ -177,8 +183,6 @@ final class PNGLashesRenderer {
         layer.bounds   = CGRect(origin: .zero, size: imageSize)
         layer.position = CGPoint(x: smoothed.x, y: smoothed.y)
 
-        // Compose: rotate to match lash line angle, scale to match eye width,
-        // optionally flip horizontally for the other eye.
         var t = CATransform3DIdentity
         t = CATransform3DRotate(t, smoothed.angle, 0, 0, 1)
         t = CATransform3DScale(t, flipScaleX, scaleY, 1)
@@ -187,19 +191,69 @@ final class PNGLashesRenderer {
         CATransaction.commit()
     }
 
-    // MARK: - Lash strip generation
+    // MARK: - White-to-alpha conversion
     //
-    // Draws a high-quality lash strip into an offscreen bitmap.
-    // The strip has:
-    //   - Fuller/longer lashes on the RIGHT side (outer corner)
-    //   - Shorter/sparser lashes on the LEFT side (inner corner)
-    //   - Natural J-curve shape on each strand
-    //   - Subtle per-strand variation for realism
-    //   - Dark strands on transparent background
+    // Converts a white-background PNG into a transparency-background image.
+    // For each pixel: alpha = 1 − luminance.  Dark lash strands stay opaque,
+    // white background becomes fully transparent.
 
-    private static func generateLashStrip(
-        width: CGFloat, height: CGFloat, style: LashStyle
-    ) -> CGImage {
+    private static func whiteToAlpha(_ source: CGImage) -> CGImage {
+        let w = source.width, h = source.height
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bytesPerRow = w * 4
+        guard let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return source }
+
+        // Draw the source image into our writable context.
+        ctx.draw(source, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        guard let data = ctx.data else { return source }
+        let pixels = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+
+        for i in 0..<(w * h) {
+            let offset = i * 4
+            let r = CGFloat(pixels[offset])     / 255.0
+            let g = CGFloat(pixels[offset + 1]) / 255.0
+            let b = CGFloat(pixels[offset + 2]) / 255.0
+
+            // Luminance (perceived brightness).
+            let lum = 0.299 * r + 0.587 * g + 0.114 * b
+
+            // New alpha: dark pixels → opaque, light pixels → transparent.
+            let newAlpha = max(0, min(1, 1.0 - lum))
+
+            // Premultiplied alpha: RGB values are multiplied by alpha.
+            let a = UInt8(newAlpha * 255)
+            if newAlpha < 0.01 {
+                pixels[offset]     = 0
+                pixels[offset + 1] = 0
+                pixels[offset + 2] = 0
+                pixels[offset + 3] = 0
+            } else {
+                // Darken the lash color slightly for richness.
+                let darkR = UInt8(min(255, r * 0.15 * newAlpha * 255))
+                let darkG = UInt8(min(255, g * 0.12 * newAlpha * 255))
+                let darkB = UInt8(min(255, b * 0.14 * newAlpha * 255))
+                pixels[offset]     = darkR
+                pixels[offset + 1] = darkG
+                pixels[offset + 2] = darkB
+                pixels[offset + 3] = a
+            }
+        }
+
+        return ctx.makeImage() ?? source
+    }
+
+    // MARK: - Procedural fallback
+    //
+    // Generates a lash strip if the asset catalog image is missing.
+    // Draws curved strands: fuller on the right (outer corner), tapering left.
+
+    private static func generateLashStrip(width: CGFloat, height: CGFloat) -> CGImage {
         let w = Int(width), h = Int(height)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let ctx = CGContext(
@@ -209,80 +263,42 @@ final class PNGLashesRenderer {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )!
 
-        // Clear background.
         ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
-
-        // Lash color — very dark brown-black.
         ctx.setStrokeColor(NSColor(calibratedRed: 0.06, green: 0.04,
                                     blue: 0.05, alpha: 0.92).cgColor)
 
-        // The baseline sits at the bottom of the image.
         let baseline: CGFloat = 10
+        let strandCount = 60
+        let maxLenFrac:  CGFloat = 0.82
+        let baseWidth:   CGFloat = 1.2
+        let curlAmount:  CGFloat = 0.30
 
-        // Number of strands and style parameters.
-        let strandCount: Int
-        let maxLenFrac:  CGFloat  // max length as fraction of height
-        let baseWidth:   CGFloat  // stroke width
-        let curlAmount:  CGFloat  // how much J-curl
-
-        switch style {
-        case .natural:
-            strandCount = 50
-            maxLenFrac  = 0.70
-            baseWidth   = 1.4
-            curlAmount  = 0.25
-        case .wispy:
-            strandCount = 60
-            maxLenFrac  = 0.82
-            baseWidth   = 1.2
-            curlAmount  = 0.30
-        case .dramatic:
-            strandCount = 80
-            maxLenFrac  = 0.92
-            baseWidth   = 1.5
-            curlAmount  = 0.22
-        }
-
-        var rng = SeededRNG(seed: style.rawValue.hashValue &+ 0xBEEF)
+        var rng = SeededRNG(seed: 0xBEEF)
 
         for i in 0..<strandCount {
-            let t = CGFloat(i) / CGFloat(strandCount - 1)  // 0=left(inner), 1=right(outer)
-
-            // ── Position along baseline ─────────────────────────────────
-            // Slight jitter so strands aren't perfectly evenly spaced.
+            let t = CGFloat(i) / CGFloat(strandCount - 1)
             let jitter = rng.next(-4, 4)
             let x = 12 + t * (width - 24) + jitter
 
-            // ── Length: short at inner (left), long at outer (right) ────
-            // Smooth envelope with a bit of variation.
             let envelope = 0.15 + 0.85 * smoothstepStatic(t)
             let lenVar = rng.next(0.82, 1.08)
             let lashLen = height * maxLenFrac * envelope * lenVar
             guard lashLen > 4 else { continue }
 
-            // ── Angle: lashes fan outward slightly ──────────────────────
-            // Inner lashes point more vertically, outer lashes lean outward.
-            let baseAngle: CGFloat = .pi / 2  // straight up
-            let fanAngle = (t - 0.4) * 0.35   // lean right for outer lashes
+            let baseAngle: CGFloat = .pi / 2
+            let fanAngle = (t - 0.4) * 0.35
             let angleVar = rng.next(-0.06, 0.06)
             let angle = baseAngle + fanAngle + angleVar
 
-            // ── Curl (J-curve via quadratic bezier) ─────────────────────
-            // The control point is offset to create the curl.
             let cosA = cos(angle), sinA = sin(angle)
             let tipX = x + cosA * lashLen
             let tipY = baseline + sinA * lashLen
 
-            // Curl the tip inward (toward the eye) by offsetting the control point.
-            // The curl amount increases toward the tip.
             let curlOffset = lashLen * curlAmount * (0.6 + 0.4 * t)
             let ctrlX = x + cosA * lashLen * 0.55 - sinA * curlOffset * 0.3
             let ctrlY = baseline + sinA * lashLen * 0.55 + cosA * curlOffset
 
-            // ── Stroke width: thicker at base, thinner at tip ───────────
-            // We approximate this by drawing the curve twice: once thick, once thin.
             let strokeW = baseWidth * (0.7 + 0.6 * rng.next(0.5, 1.0))
-
             ctx.setLineWidth(strokeW)
             ctx.setLineCap(.round)
             ctx.setAlpha(0.85 + rng.next(0, 0.15))
@@ -297,32 +313,30 @@ final class PNGLashesRenderer {
             ctx.strokePath()
         }
 
-        // ── Extra wispy accent strands (longer, thinner) ────────────────
-        if style == .wispy {
-            ctx.setLineWidth(0.8)
-            for _ in 0..<12 {
-                let t = rng.next(0.35, 1.0)  // mostly outer half
-                let x = 12 + t * (width - 24) + rng.next(-3, 3)
-                let envelope = 0.15 + 0.85 * smoothstepStatic(t)
-                let lashLen = height * maxLenFrac * envelope * rng.next(1.05, 1.25)
-                let angle: CGFloat = .pi / 2 + (t - 0.4) * 0.35 + rng.next(-0.08, 0.08)
-                let cosA = cos(angle), sinA = sin(angle)
-                let tipX = x + cosA * lashLen
-                let tipY = baseline + sinA * lashLen
-                let curlOffset = lashLen * curlAmount * 0.9
-                let ctrlX = x + cosA * lashLen * 0.5 - sinA * curlOffset * 0.25
-                let ctrlY = baseline + sinA * lashLen * 0.5 + cosA * curlOffset
+        // Extra wispy accents.
+        ctx.setLineWidth(0.8)
+        for _ in 0..<12 {
+            let t = rng.next(0.35, 1.0)
+            let x = 12 + t * (width - 24) + rng.next(-3, 3)
+            let envelope = 0.15 + 0.85 * smoothstepStatic(t)
+            let lashLen = height * maxLenFrac * envelope * rng.next(1.05, 1.25)
+            let angle: CGFloat = .pi / 2 + (t - 0.4) * 0.35 + rng.next(-0.08, 0.08)
+            let cosA = cos(angle), sinA = sin(angle)
+            let tipX = x + cosA * lashLen
+            let tipY = baseline + sinA * lashLen
+            let curlOffset = lashLen * curlAmount * 0.9
+            let ctrlX = x + cosA * lashLen * 0.5 - sinA * curlOffset * 0.25
+            let ctrlY = baseline + sinA * lashLen * 0.5 + cosA * curlOffset
 
-                ctx.setAlpha(0.70 + rng.next(0, 0.20))
-                let path = CGMutablePath()
-                path.move(to: CGPoint(x: x, y: baseline))
-                path.addQuadCurve(
-                    to: CGPoint(x: tipX, y: tipY),
-                    control: CGPoint(x: ctrlX, y: ctrlY)
-                )
-                ctx.addPath(path)
-                ctx.strokePath()
-            }
+            ctx.setAlpha(0.70 + rng.next(0, 0.20))
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: x, y: baseline))
+            path.addQuadCurve(
+                to: CGPoint(x: tipX, y: tipY),
+                control: CGPoint(x: ctrlX, y: ctrlY)
+            )
+            ctx.addPath(path)
+            ctx.strokePath()
         }
 
         return ctx.makeImage()!
@@ -354,17 +368,13 @@ final class PNGLashesRenderer {
 }
 
 // MARK: - TransformSmoothing
-//
-// EMA smoothing on the 4 transform parameters (x, y, width, angle).
-// Much more stable than smoothing individual landmark points because
-// there are only 4 values, not dozens.
 
 private struct TransformSmoothing {
     private var smoothX:     CGFloat?
     private var smoothY:     CGFloat?
     private var smoothWidth: CGFloat?
     private var smoothAngle: CGFloat?
-    private let alpha: CGFloat = 0.38   // responsiveness (higher = faster, less smooth)
+    private let alpha: CGFloat = 0.38
 
     struct Values {
         let x, y, width, angle: CGFloat
@@ -375,7 +385,6 @@ private struct TransformSmoothing {
             smoothX     = sx + alpha * (x - sx)
             smoothY     = smoothY! + alpha * (y - smoothY!)
             smoothWidth = smoothWidth! + alpha * (width - smoothWidth!)
-            // Angle needs special handling for wrap-around.
             var da = angle - smoothAngle!
             if da >  .pi { da -= 2 * .pi }
             if da < -.pi { da += 2 * .pi }
