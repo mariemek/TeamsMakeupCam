@@ -56,16 +56,19 @@ final class PreviewContainerView: NSView {
     private let lipstickLayer = CAShapeLayer()
     private let lipLinerLayer = CAShapeLayer()
     private let eyelinerLayer = CAShapeLayer()
-    private let lashesLayer = CAShapeLayer()
+    private let lashContainerLayer = CALayer()  // mirrored container for lash images
+    private let leftLashLayer = CALayer()
+    private let rightLashLayer = CALayer()
     private let debugOverlayLayer = CAShapeLayer()
 
-    private var allLayers: [CALayer] {
+    /// Layers whose frame fills the view and receive the mirror transform.
+    private var fullFrameLayers: [CALayer] {
         [
             previewLayer,
             contentLayer,
             leftBlushLayer,
             rightBlushLayer,
-            lashesLayer,
+            lashContainerLayer,
             eyelinerLayer,
             lipstickLayer,
             lipLinerLayer,
@@ -126,16 +129,25 @@ final class PreviewContainerView: NSView {
         debugOverlayLayer.lineWidth = 1.5
 
         let fill: CAAutoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        for layer in allLayers {
+        for layer in fullFrameLayers {
             layer.autoresizingMask = fill
             layer.frame = bounds
         }
+
+        lashContainerLayer.backgroundColor = NSColor.clear.cgColor
+        lashContainerLayer.masksToBounds = false
+        leftLashLayer.backgroundColor = NSColor.clear.cgColor
+        leftLashLayer.masksToBounds = false
+        rightLashLayer.backgroundColor = NSColor.clear.cgColor
+        rightLashLayer.masksToBounds = false
+        lashContainerLayer.addSublayer(leftLashLayer)
+        lashContainerLayer.addSublayer(rightLashLayer)
 
         rootLayer.addSublayer(previewLayer)
         rootLayer.addSublayer(contentLayer)
         rootLayer.addSublayer(leftBlushLayer)
         rootLayer.addSublayer(rightBlushLayer)
-        rootLayer.addSublayer(lashesLayer)
+        rootLayer.addSublayer(lashContainerLayer)
         rootLayer.addSublayer(eyelinerLayer)
         rootLayer.addSublayer(lipstickLayer)
         rootLayer.addSublayer(lipLinerLayer)
@@ -151,12 +163,12 @@ final class PreviewContainerView: NSView {
         CATransaction.setDisableActions(true)
 
         layer?.frame = bounds
-        for layer in allLayers {
+        for layer in fullFrameLayers {
             layer.frame = bounds
         }
 
         let mirror = CATransform3DMakeScale(-1, 1, 1)
-        for layer in allLayers {
+        for layer in fullFrameLayers {
             layer.transform = mirror
         }
 
@@ -172,7 +184,7 @@ final class PreviewContainerView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.frame = bounds
-        for layer in allLayers {
+        for layer in fullFrameLayers {
             layer.frame = bounds
         }
         CATransaction.commit()
@@ -253,8 +265,9 @@ final class PreviewContainerView: NSView {
             viewBounds: bounds
         )
 
-        lashesRenderer.updateLashesLayer(
-            lashesLayer,
+        lashesRenderer.updateLashLayers(
+            leftLayer: leftLashLayer,
+            rightLayer: rightLashLayer,
             with: landmarks,
             in: previewLayer,
             settings: makeupSettings,
@@ -283,10 +296,13 @@ final class PreviewContainerView: NSView {
         rightBlushLayer.contents = nil
         leftBlushLayer.opacity = 0
         rightBlushLayer.opacity = 0
+        leftLashLayer.contents = nil
+        rightLashLayer.contents = nil
+        leftLashLayer.opacity = 0
+        rightLashLayer.opacity = 0
         lipstickLayer.path = nil
         lipLinerLayer.path = nil
         eyelinerLayer.path = nil
-        lashesLayer.path = nil
         debugOverlayLayer.path = nil
     }
 
