@@ -1,37 +1,29 @@
 import AVFoundation
 import AppKit
 
-/// Renders natural-looking filled eyebrows from 10 MediaPipe landmarks.
+/// Renders natural-looking filled eyebrows from a 10-point ordered contour.
 ///
-/// ## Why we sort by x
-/// MediaPipe landmark indices follow the 3-D mesh topology, NOT left→right
-/// screen order. Without sorting, adjacent points zig-zag in screen space
-/// and Catmull-Rom creates self-intersecting "X" shapes.
-/// Sorting each arc by screen-x puts them in spatial order along the brow axis.
+/// ## Contour format (from Python sidecar)
+/// pts[0..4] = upper arc, inner-corner → outer-corner  (top edge of brow)
+/// pts[5..9] = lower arc, outer-corner → inner-corner  (bottom edge of brow, reversed)
 ///
-/// ## How the brow shape is determined
-/// pts[0..4] = upper arc (top edge of brow)
-/// pts[5..9] = lower arc (bottom edge of brow)
-/// Both arcs come from MediaPipe and trace the user's ACTUAL brow boundary.
-/// We do NOT invent a fake thickness — we use the real lower arc y positions
-/// and only blend them toward the upper arc at the head and tail tips so the
-/// shape closes cleanly.
-///
-/// Controls: intensity + color only.
+/// Together the 10 points form a closed brow outline. We draw it directly as
+/// a closed Catmull-Rom spline — the same technique used for lips — so no
+/// sorting, splitting, or geometric shaping is needed. The shape comes
+/// entirely from the real MediaPipe landmarks.
 final class BrowRenderer {
 
     // MARK: - Temporal state
 
     private struct BrowState {
-        var upper: [CGPoint] = []   // EMA-smoothed upper arc, head→tail
-        var lower: [CGPoint] = []   // EMA-smoothed lower arc, head→tail
+        var contour: [CGPoint] = []
         var valid = false
     }
     private var leftState  = BrowState()
     private var rightState = BrowState()
 
     /// EMA alpha — lower = smoother/more lag, higher = snappier/more jitter.
-    private let ema: CGFloat = 0.22
+    private let ema: CGFloat = 0.30
 
     // MARK: - Entry point
 
@@ -60,26 +52,19 @@ final class BrowRenderer {
         let leftPts  = face.leftEyebrow.map(convert)
         let rightPts = face.rightEyebrow.map(convert)
 
-        // Face centre x: used to orient each brow (which end is the tail).
-        func avgX(_ pts: [CGPoint]) -> CGFloat {
-            pts.isEmpty ? 0 : pts.map(\.x).reduce(0, +) / CGFloat(pts.count)
-        }
-        let faceCentreX = (avgX(leftPts) + avgX(rightPts)) / 2
-
         let path = CGMutablePath()
 
-        if leftPts.count >= 10 {
-            drawBrow(leftPts,  faceCentreX: faceCentreX, state: &leftState,  to: path)
+        if leftPts.count >= 6 {
+            drawBrow(leftPts,  state: &leftState,  to: path)
         }
-        if rightPts.count >= 10 {
-            drawBrow(rightPts, faceCentreX: faceCentreX, state: &rightState, to: path)
+        if rightPts.count >= 6 {
+            drawBrow(rightPts, state: &rightState, to: path)
         }
 
         layer.path = path
 
-        // Keep alpha modest — CIMultiplyBlendMode already darkens the skin
-        // naturally, so we don't need a heavy fill.
-        let alpha = 0.03 + 0.22 * intensity
+        // Modest alpha — CIMultiplyBlendMode darkens naturally, so keep fill subtle.
+        let alpha = 0.05 + 0.20 * intensity
         let color  = settings.browNSColor
 
         layer.fillColor   = color.withAlphaComponent(alpha).cgColor
@@ -87,10 +72,10 @@ final class BrowRenderer {
         layer.lineWidth   = 0
         layer.fillRule    = .nonZero
 
-        // Tiny shadow = soft hair-edge fringe, not extra thickness.
-        layer.shadowColor   = color.withAlphaComponent(alpha * 0.45).cgColor
+        // Soft shadow gives a hair-edge fringe without adding artificial thickness.
+        layer.shadowColor   = color.withAlphaComponent(alpha * 0.40).cgColor
         layer.shadowOpacity = 1.0
-        layer.shadowRadius  = 0.6 + 0.9 * intensity
+        layer.shadowRadius  = 0.5 + 1.0 * intensity
         layer.shadowOffset  = .zero
 
         layer.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
@@ -100,129 +85,40 @@ final class BrowRenderer {
 
     private func drawBrow(
         _ rawPoints: [CGPoint],
-        faceCentreX: CGFloat,
         state: inout BrowState,
         to path: CGMutablePath
     ) {
-        // ── 1. Split into upper arc (top edge) and lower arc (bottom edge) ────
-        var upper = Array(rawPoints.prefix(5))
-        var lower = Array(rawPoints.suffix(5))
-
-        // ── 2. Sort each arc by screen-x (left → right) ───────────────────────
-        // MediaPipe indices are mesh-topology order, not screen-spatial order.
-        // Sorting by x puts them in correct left→right sequence so Catmull-Rom
-        // draws smooth curves rather than self-intersecting zigzags.
-        upper.sort { $0.x < $1.x }
-        lower.sort { $0.x < $1.x }
-
-        // ── 3. Orient both arcs head (inner corner) → tail (outer corner) ─────
-        // After sorting ascending: upper[0] = leftmost, upper[4] = rightmost.
-        //
-        // The TAIL is always the endpoint that is FARTHER from the face centre
-        // (it's at the temple — outer corner).
-        // The HEAD is always the endpoint that is CLOSER to the face centre
-        // (it's near the nose bridge — inner corner).
-        //
-        // Comparing endpoint distances is more robust than comparing avgX to
-        // faceCentreX, because it works regardless of mirroring or camera setup.
-        let distLow  = abs(upper.first!.x - faceCentreX)  // distance of leftmost from centre
-        let distHigh = abs(upper.last!.x  - faceCentreX)  // distance of rightmost from centre
-        let tailAtHighX = distHigh >= distLow  // tail is at the end farther from centre
-        if !tailAtHighX {
-            // Tail is at the leftmost (low-x) end → reverse so tail lands at index 4
-            upper.reverse()
-            lower.reverse()
+        // EMA temporal smoothing
+        var pts = rawPoints
+        if state.valid && state.contour.count == pts.count {
+            pts = zip(pts, state.contour).map { lerp($1, $0, ema) }
         }
-        // After this: [0] = inner head corner, [4] = outer tail corner ✓
+        state.contour = pts
+        state.valid   = true
 
-        // ── 4. EMA temporal smoothing ─────────────────────────────────────────
-        if state.valid,
-           state.upper.count == upper.count,
-           state.lower.count == lower.count {
-            upper = zip(upper, state.upper).map { lerp($1, $0, ema) }
-            lower = zip(lower, state.lower).map { lerp($1, $0, ema) }
-        }
-        state.upper = upper
-        state.lower = lower
-        state.valid = true
+        // Draw the ordered contour as a closed Catmull-Rom curve.
+        // The 10 landmarks already trace the brow outline (upper arc then
+        // reversed lower arc), so no geometric shaping is needed.
+        let curve = catmullRomClosed(pts, steps: 12)
+        guard curve.count >= 3 else { return }
 
-        // ── 5. Shape the lower arc ────────────────────────────────────────────
-        // Use the REAL MediaPipe lower-arc y positions (they trace the user's
-        // actual brow bottom edge). Only blend toward the upper arc at the
-        // very head and tail tips so the shape closes to a point at each end.
-        let shaped = shapeLower(lower, against: upper)
-
-        // ── 6. Catmull-Rom subdivision ─────────────────────────────────────────
-        let upperCurve = catmullRom(upper,  steps: 14)
-        let lowerCurve = catmullRom(shaped, steps: 14)
-        guard !upperCurve.isEmpty, !lowerCurve.isEmpty else { return }
-
-        // ── 7. Pointed tail tip ────────────────────────────────────────────────
-        let tailUpper = upperCurve.last!
-        let tailLower = lowerCurve.last!
-        let outDir: CGFloat = tailAtHighX ? 1 : -1
-        let ext = abs(upper.last!.x - upper.first!.x) * 0.04
-        let tailTip = CGPoint(
-            x: (tailUpper.x + tailLower.x) / 2 + outDir * ext,
-            y: tailUpper.y * 0.75 + tailLower.y * 0.25
-        )
-
-        // ── 8. Trace closed outline ────────────────────────────────────────────
-        path.move(to: upperCurve[0])
-        for pt in upperCurve.dropFirst() { path.addLine(to: pt) }
-
-        path.addQuadCurve(to: tailTip,   control: tailUpper)
-        path.addQuadCurve(to: tailLower, control: tailTip)
-
-        for pt in lowerCurve.dropLast().reversed() { path.addLine(to: pt) }
-
-        let headCtrl = CGPoint(
-            x: (lowerCurve.first!.x + upperCurve.first!.x) / 2,
-            y: (lowerCurve.first!.y + upperCurve.first!.y) / 2
-        )
-        path.addQuadCurve(to: upperCurve.first!, control: headCtrl)
+        path.move(to: curve[0])
+        for pt in curve.dropFirst() { path.addLine(to: pt) }
         path.closeSubpath()
     }
 
-    // MARK: - Lower arc shaping
+    // MARK: - Closed Catmull-Rom spline
 
-    /// Uses the ACTUAL MediaPipe lower arc positions to preserve the user's
-    /// real brow shape. Only tapers toward the upper arc at the two extremes
-    /// (head = inner corner, tail = outer tip) so the brow closes cleanly.
-    ///
-    /// blend = 1.0  →  real MediaPipe lower position  (brow body is unchanged)
-    /// blend = 0.0  →  converges to upper arc         (tip closes to a point)
-    private func shapeLower(_ lower: [CGPoint], against upper: [CGPoint]) -> [CGPoint] {
-        guard lower.count == upper.count else { return lower }
-
-        return zip(lower, upper).enumerated().map { i, pair in
-            let (lo, up) = pair
-            let t = CGFloat(i) / CGFloat(max(lower.count - 1, 1))
-
-            // Open from 0→1 over the first 28% (thin inner head)
-            let headOpen  = smoothStep(0.0, 0.28, t)
-            // Close from 1→0 over the last 28% (converge to pointed tail)
-            let tailClose = 1.0 - smoothStep(0.72, 1.0, t)
-            let blend = headOpen * tailClose
-
-            // blend=1 in the brow body → real MediaPipe lower landmark
-            // blend=0 at tips → converges to upper arc (clean closure)
-            return CGPoint(
-                x: up.x + (lo.x - up.x) * blend,
-                y: up.y + (lo.y - up.y) * blend
-            )
-        }
-    }
-
-    // MARK: - Catmull-Rom spline
-
-    private func catmullRom(_ pts: [CGPoint], steps: Int = 14) -> [CGPoint] {
-        guard pts.count >= 2 else { return pts }
-        let p = [pts[0]] + pts + [pts[pts.count - 1]]
+    private func catmullRomClosed(_ pts: [CGPoint], steps: Int = 12) -> [CGPoint] {
+        let n = pts.count
+        guard n >= 3 else { return pts }
         var result: [CGPoint] = []
-        result.reserveCapacity((p.count - 3) * steps + 1)
-        for i in 1..<(p.count - 2) {
-            let p0 = p[i-1], p1 = p[i], p2 = p[i+1], p3 = p[i+2]
+        result.reserveCapacity(n * steps)
+        for i in 0..<n {
+            let p0 = pts[(i + n - 1) % n]
+            let p1 = pts[i]
+            let p2 = pts[(i + 1) % n]
+            let p3 = pts[(i + 2) % n]
             for j in 0..<steps {
                 let t  = CGFloat(j) / CGFloat(steps)
                 let t2 = t * t, t3 = t2 * t
@@ -235,7 +131,6 @@ final class BrowRenderer {
                 result.append(CGPoint(x: x, y: y))
             }
         }
-        if let last = pts.last { result.append(last) }
         return result
     }
 
@@ -243,11 +138,6 @@ final class BrowRenderer {
 
     private func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
         CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
-    }
-
-    private func smoothStep(_ e0: CGFloat, _ e1: CGFloat, _ x: CGFloat) -> CGFloat {
-        let t = max(0, min(1, (x - e0) / max(e1 - e0, 0.0001)))
-        return t * t * (3 - 2 * t)
     }
 
     private func clearLayer(_ layer: CAShapeLayer) {

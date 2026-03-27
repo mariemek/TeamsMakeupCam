@@ -121,27 +121,42 @@ RIGHT_EYE = [
     173, 157, 158, 159, 160, 161, 246, 33         # upper lid
 ]
 
-# Eyebrow landmarks — upper arc (pts 0-4) then lower arc (pts 5-9).
+# Eyebrow landmarks — ordered closed contour.
 #
-# IMPORTANT: These indices follow MediaPipe's mesh TOPOLOGY, not screen
-# x-order. The Swift renderer sorts each arc by screen-x to get proper
-# left→right spatial ordering, then uses face-centre to orient head vs tail.
+# Points are sent as a closed polygon:
+#   pts[0..4]  = upper arc, inner-corner → outer-corner  (top edge of brow)
+#   pts[5..9]  = lower arc, outer-corner → inner-corner  (bottom edge of brow, REVERSED)
 #
-# Upper arc = the top visible edge of the brow.
-# Lower arc = the bottom visible edge of the brow.
-# Together they define the real brow outline on the user's face.
+# This ordering lets the Swift renderer draw a closed Catmull-Rom path
+# directly (like lips) without needing to sort or re-orient the points.
+#
+# MediaPipe Face Mesh official contour connections (from FACEMESH_EYEBROWS):
+#   Right brow upper: 46–53–52–65–55
+#   Right brow lower: 70–63–105–66–107
+#   Left  brow upper: 276–283–282–295–285
+#   Left  brow lower: 300–293–334–296–336
 
 # Left eyebrow (subject's left; screen-right in mirrored feed)
 LEFT_EYEBROW = [
-    276, 283, 282, 295, 285,   # upper arc (top edge)
-    300, 293, 334, 296, 336    # lower arc (bottom edge)
+    276, 283, 282, 295, 285,   # upper arc: inner head → outer tail
+    336, 296, 334, 293, 300    # lower arc: outer tail → inner head (reversed for closed contour)
 ]
 
 # Right eyebrow (subject's right; screen-left in mirrored feed)
 RIGHT_EYEBROW = [
-    46, 53, 52, 65, 55,    # upper arc (top edge)
-    70, 63, 105, 66, 107   # lower arc (bottom edge)
+    46, 53, 52, 65, 55,     # upper arc: inner head → outer tail
+    107, 66, 105, 63, 70    # lower arc: outer tail → inner head (reversed for closed contour)
 ]
+
+# Upper eyelid landmarks for eyeliner — subject's LEFT eye (screen-right in mirror).
+# Follows the upper lid from outer corner → inner corner along the lid crease.
+# MediaPipe contour: 263–466–388–387–386–385–384–398–362
+LEFT_UPPER_EYELID = [263, 466, 388, 387, 386, 385, 384, 398, 362]
+
+# Upper eyelid landmarks for eyeliner — subject's RIGHT eye (screen-left in mirror).
+# Follows the upper lid from outer corner → inner corner along the lid crease.
+# MediaPipe contour: 33–246–161–160–159–158–157–173–133
+RIGHT_UPPER_EYELID = [33, 246, 161, 160, 159, 158, 157, 173, 133]
 
 # Face oval — 36-point jaw + hairline contour
 FACE_CONTOUR = [
@@ -201,13 +216,15 @@ def face_landmarks_endpoint():
     face = result.face_landmarks[0]   # list of NormalizedLandmark
 
     response = {
-        "outerLips":    extract_points(face, OUTER_LIPS),
-        "innerLips":    extract_points(face, INNER_LIPS),
-        "leftEye":      extract_points(face, LEFT_EYE),
-        "rightEye":     extract_points(face, RIGHT_EYE),
-        "leftEyebrow":  extract_points(face, LEFT_EYEBROW),
-        "rightEyebrow": extract_points(face, RIGHT_EYEBROW),
-        "faceContour":  extract_points(face, FACE_CONTOUR),
+        "outerLips":          extract_points(face, OUTER_LIPS),
+        "innerLips":          extract_points(face, INNER_LIPS),
+        "leftEye":            extract_points(face, LEFT_EYE),
+        "rightEye":           extract_points(face, RIGHT_EYE),
+        "leftEyebrow":        extract_points(face, LEFT_EYEBROW),
+        "rightEyebrow":       extract_points(face, RIGHT_EYEBROW),
+        "leftUpperEyelidRaw": extract_points(face, LEFT_UPPER_EYELID),
+        "rightUpperEyelidRaw":extract_points(face, RIGHT_UPPER_EYELID),
+        "faceContour":        extract_points(face, FACE_CONTOUR),
     }
 
     return jsonify(response)
