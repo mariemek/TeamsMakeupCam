@@ -32,7 +32,6 @@ struct MakeupSettings {
 
     var lashStyle: LashStyle = .wispy
     var lashesOpacity: Double = 0.85
-    var lashesBlurRadius: Double = 0.6
 
     // MARK: - Blush
     var blushNSColor: NSColor = NSColor(calibratedRed: 0.93, green: 0.55, blue: 0.63, alpha: 1.0)
@@ -118,7 +117,6 @@ struct MakeupSettings {
         lashesIntensity: 0.06,
         lashStyle: .natural,
         lashesOpacity: 0.82,
-        lashesBlurRadius: 0.45,
         blushNSColor: NSColor(calibratedRed: 0.95, green: 0.70, blue: 0.74, alpha: 1.0),
         blushIntensity: 0.12,
         blushPlacementX: -0.01,
@@ -138,7 +136,6 @@ struct MakeupSettings {
         lashesIntensity: 0.12,
         lashStyle: .wispy,
         lashesOpacity: 0.85,
-        lashesBlurRadius: 0.60,
         blushNSColor: NSColor(calibratedRed: 0.93, green: 0.55, blue: 0.63, alpha: 1.0),
         blushIntensity: 0.22,
         blushPlacementX: 0.0,
@@ -158,7 +155,6 @@ struct MakeupSettings {
         lashesIntensity: 0.16,
         lashStyle: .dramatic,
         lashesOpacity: 0.88,
-        lashesBlurRadius: 0.65,
         blushNSColor: NSColor(calibratedRed: 0.86, green: 0.42, blue: 0.52, alpha: 1.0),
         blushIntensity: 0.28,
         blushPlacementX: 0.02,

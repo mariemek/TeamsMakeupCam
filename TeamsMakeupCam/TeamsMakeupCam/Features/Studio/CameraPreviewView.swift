@@ -56,7 +56,6 @@ final class PreviewContainerView: NSView {
     private let lipstickLayer = CAShapeLayer()
     private let lipLinerLayer = CAShapeLayer()
     private let eyelinerLayer = CAShapeLayer()
-    private let lashContainerLayer = CALayer()  // mirrored container for lash images
     private let leftLashLayer = CALayer()
     private let rightLashLayer = CALayer()
     private let debugOverlayLayer = CAShapeLayer()
@@ -68,7 +67,8 @@ final class PreviewContainerView: NSView {
             contentLayer,
             leftBlushLayer,
             rightBlushLayer,
-            lashContainerLayer,
+            leftLashLayer,
+            rightLashLayer,
             eyelinerLayer,
             lipstickLayer,
             lipLinerLayer,
@@ -134,20 +134,17 @@ final class PreviewContainerView: NSView {
             layer.frame = bounds
         }
 
-        lashContainerLayer.backgroundColor = NSColor.clear.cgColor
-        lashContainerLayer.masksToBounds = false
         leftLashLayer.backgroundColor = NSColor.clear.cgColor
         leftLashLayer.masksToBounds = false
         rightLashLayer.backgroundColor = NSColor.clear.cgColor
         rightLashLayer.masksToBounds = false
-        lashContainerLayer.addSublayer(leftLashLayer)
-        lashContainerLayer.addSublayer(rightLashLayer)
 
         rootLayer.addSublayer(previewLayer)
         rootLayer.addSublayer(contentLayer)
         rootLayer.addSublayer(leftBlushLayer)
         rootLayer.addSublayer(rightBlushLayer)
-        rootLayer.addSublayer(lashContainerLayer)
+        rootLayer.addSublayer(leftLashLayer)
+        rootLayer.addSublayer(rightLashLayer)
         rootLayer.addSublayer(eyelinerLayer)
         rootLayer.addSublayer(lipstickLayer)
         rootLayer.addSublayer(lipLinerLayer)

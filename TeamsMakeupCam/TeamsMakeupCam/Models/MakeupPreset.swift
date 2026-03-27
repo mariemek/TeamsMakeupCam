@@ -194,7 +194,6 @@ private struct MakeupSettingsSnapshot: Codable, Equatable {
 
     var lashStyleRawValue: String
     var lashesOpacity: Double
-    var lashesBlurRadius: Double
 
     var blushColor: RGBAColor
     var blushIntensity: Double
@@ -217,7 +216,6 @@ private struct MakeupSettingsSnapshot: Codable, Equatable {
 
         self.lashStyleRawValue = settings.lashStyle.rawValue
         self.lashesOpacity = settings.lashesOpacity
-        self.lashesBlurRadius = settings.lashesBlurRadius
 
         self.blushColor = RGBAColor(settings.blushNSColor)
         self.blushIntensity = settings.blushIntensity
@@ -243,7 +241,6 @@ private struct MakeupSettingsSnapshot: Codable, Equatable {
 
         settings.lashStyle = MakeupSettings.LashStyle(rawValue: lashStyleRawValue) ?? .wispy
         settings.lashesOpacity = lashesOpacity
-        settings.lashesBlurRadius = lashesBlurRadius
 
         settings.blushNSColor = blushColor.nsColor
         settings.blushIntensity = blushIntensity
