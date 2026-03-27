@@ -120,12 +120,14 @@ final class EyelinerRenderer {
             return
         }
 
-        // Build spine from upper lid when available; otherwise derive.
+        // Build spine from upper lid when available; otherwise derive from full eye.
+        let hasUpperLid = upperLid != nil
         let spineSource = upperLid ?? stableEye
         guard let rawSpine = buildSpine(
             eye: spineSource,
             convert: convert,
-            wingGoesRight: wingGoesRight
+            wingGoesRight: wingGoesRight,
+            isUpperLidOnly: hasUpperLid
         ) else {
             if let p = state.lastGoodPath { path.addPath(p) }
             return
@@ -156,11 +158,13 @@ final class EyelinerRenderer {
     private func buildSpine(
         eye: [CGPoint],
         convert: (CGPoint) -> CGPoint,
-        wingGoesRight: Bool
+        wingGoesRight: Bool,
+        isUpperLidOnly: Bool = false
     ) -> [CGPoint]? {
         guard eye.count >= 5 else { return nil }
 
-        let arc = upperArc(from: eye)
+        // Pre-extracted upper lid → use directly; full eye → extract upper arc.
+        let arc = isUpperLidOnly ? eye : upperArc(from: eye)
         guard arc.count >= 3 else { return nil }
 
         var pts = arc.map(convert)
@@ -177,8 +181,9 @@ final class EyelinerRenderer {
     }
 
     private func upperArc(from eye: [CGPoint]) -> [CGPoint] {
-        // Pre-extracted upper lid (< 12 pts) → return as-is.
-        guard eye.count >= 12 else { return eye }
+        // Full eye contour (≥ 8 pts) → split in half, pick the upper arc.
+        // Smaller counts (e.g. Vision fallback with few points) → return as-is.
+        guard eye.count >= 8 else { return eye }
 
         let half = eye.count / 2
         let a1 = Array(eye[0..<half])
@@ -220,25 +225,28 @@ final class EyelinerRenderer {
 
         // ── 2. Upper / lower edges (perpendicular to spine) ─────────────────
         // Geometry is fixed — intensity does NOT affect it.
-        let maxThick = max(2.0, min(lidSpan * 0.055, 6.0))
-        let drop     = max(1.0, lidSpan * 0.015)
+        // Upper edge sits right ON the lash line (spine); band extends toward
+        // the eye opening (toward eyeCenter).
+        let maxThick = max(2.5, min(lidSpan * 0.065, 7.0))
 
         var upper = [CGPoint](repeating: .zero, count: n)
         var lower = [CGPoint](repeating: .zero, count: n)
 
         for i in 0..<n {
             let t     = CGFloat(i) / CGFloat(max(n - 1, 1))
-            let taper = smoothStep(0.15, 0.55, t)
-            let boost = 1.0 + 0.4 * smoothStep(0.55, 1.0, t)
+            // Cat-eye taper: invisible inner third, appears ~35%, full at ~55%.
+            let taper = smoothStep(0.30, 0.55, t)
+            let boost = 1.0 + 0.5 * smoothStep(0.55, 1.0, t)
             let thick = maxThick * taper * boost
 
             let p  = spine[i]
             let nm = normals[i]
 
-            upper[i] = CGPoint(x: p.x + nm.x * drop,
-                               y: p.y + nm.y * drop)
-            lower[i] = CGPoint(x: p.x + nm.x * (drop + thick),
-                               y: p.y + nm.y * (drop + thick))
+            // Upper edge = the spine itself (lash line).
+            upper[i] = p
+            // Lower edge = offset toward the eye centre by thickness.
+            lower[i] = CGPoint(x: p.x + nm.x * thick,
+                               y: p.y + nm.y * thick)
         }
 
         // ── 3. Wing ─────────────────────────────────────────────────────────
@@ -261,8 +269,8 @@ final class EyelinerRenderer {
         // ── 4. Trace closed path ────────────────────────────────────────────
         let result = CGMutablePath()
 
-        // Skip the invisible inner portion (thickness ≈ 0).
-        let startIdx = max(0, Int(CGFloat(n) * 0.15))
+        // Skip the invisible inner portion (thickness ≈ 0 before taper kicks in).
+        let startIdx = max(0, Int(CGFloat(n) * 0.28))
 
         // Upper edge  inner → outer
         result.move(to: upper[startIdx])
