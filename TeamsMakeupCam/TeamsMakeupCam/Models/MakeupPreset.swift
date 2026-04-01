@@ -3,8 +3,6 @@ import Combine
 import SwiftUI
 import AppKit
 
-// MARK: - MakeupPreset
-
 struct MakeupPreset: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
@@ -57,8 +55,6 @@ struct MakeupPreset: Identifiable, Codable, Equatable {
         MakeupSettingsSnapshot(settings: lhs.settings) == MakeupSettingsSnapshot(settings: rhs.settings)
     }
 }
-
-// MARK: - PresetStore
 
 final class PresetStore: ObservableObject {
     private static let presetsKey = "makeup_presets_v2"
@@ -148,8 +144,6 @@ final class PresetStore: ObservableObject {
     }
 }
 
-// MARK: - Codable helpers
-
 private struct RGBAColor: Codable, Equatable {
     var red: Double
     var green: Double
@@ -190,18 +184,6 @@ private struct MakeupSettingsSnapshot: Codable, Equatable {
 
     var smoothingStrength: Double
     var eyelinerIntensity: Double
-    var lashesIntensity: Double
-
-    var lashStyleRawValue: String
-    var lashesOpacity: Double
-
-    var blushColor: RGBAColor
-    var blushIntensity: Double
-    var blushPlacementX: Double
-    var blushPlacementY: Double
-    var blushWidth: Double
-    var blushHeight: Double
-    var blushFeather: Double
 
     init(settings: MakeupSettings) {
         self.lipstickColor = RGBAColor(settings.lipstickNSColor)
@@ -212,18 +194,6 @@ private struct MakeupSettingsSnapshot: Codable, Equatable {
 
         self.smoothingStrength = settings.smoothingStrength
         self.eyelinerIntensity = settings.eyelinerIntensity
-        self.lashesIntensity = settings.lashesIntensity
-
-        self.lashStyleRawValue = settings.lashStyle.rawValue
-        self.lashesOpacity = settings.lashesOpacity
-
-        self.blushColor = RGBAColor(settings.blushNSColor)
-        self.blushIntensity = settings.blushIntensity
-        self.blushPlacementX = settings.blushPlacementX
-        self.blushPlacementY = settings.blushPlacementY
-        self.blushWidth = settings.blushWidth
-        self.blushHeight = settings.blushHeight
-        self.blushFeather = settings.blushFeather
     }
 
     var makeupSettings: MakeupSettings {
@@ -237,18 +207,6 @@ private struct MakeupSettingsSnapshot: Codable, Equatable {
 
         settings.smoothingStrength = smoothingStrength
         settings.eyelinerIntensity = eyelinerIntensity
-        settings.lashesIntensity = lashesIntensity
-
-        settings.lashStyle = MakeupSettings.LashStyle(rawValue: lashStyleRawValue) ?? .wispy
-        settings.lashesOpacity = lashesOpacity
-
-        settings.blushNSColor = blushColor.nsColor
-        settings.blushIntensity = blushIntensity
-        settings.blushPlacementX = blushPlacementX
-        settings.blushPlacementY = blushPlacementY
-        settings.blushWidth = blushWidth
-        settings.blushHeight = blushHeight
-        settings.blushFeather = blushFeather
 
         return settings
     }

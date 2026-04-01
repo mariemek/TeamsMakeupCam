@@ -32,7 +32,6 @@ struct SavePresetSheet: View {
                     let trimmed = name.trimmingCharacters(in: .whitespaces)
                     guard !trimmed.isEmpty else { return }
 
-                    // ✅ FIXED
                     presetStore.savePreset(name: trimmed, settings: settings)
 
                     if let newPreset = presetStore.presets.first {
@@ -69,7 +68,6 @@ struct PresetsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-
             HStack {
                 Text("My Presets")
                     .font(.title3)
@@ -103,17 +101,15 @@ struct PresetsListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
-
             } else {
-
                 List {
-                    ForEach(presetStore.presets) { preset in
+                    ForEach(Array(presetStore.presets.enumerated()), id: \.element.id) { _, preset in
                         HStack(spacing: 12) {
-
                             Circle()
                                 .fill(presetStore.activePresetID == preset.id ? Color.green : Color.clear)
                                 .overlay(
-                                    Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                                    Circle()
+                                        .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
                                 )
                                 .frame(width: 10, height: 10)
 
@@ -121,7 +117,8 @@ struct PresetsListView: View {
                                 Text(preset.name)
                                     .fontWeight(
                                         presetStore.activePresetID == preset.id
-                                        ? .semibold : .regular
+                                        ? .semibold
+                                        : .regular
                                     )
 
                                 Text(df.string(from: preset.createdAt))
@@ -132,10 +129,12 @@ struct PresetsListView: View {
                             Spacer()
 
                             HStack(spacing: 3) {
-                                Circle().fill(preset.settings.lipstickColor)
+                                Circle()
+                                    .fill(Color(nsColor: preset.settings.lipstickNSColor))
                                     .frame(width: 10, height: 10)
 
-                                Circle().fill(preset.settings.lipLinerColor)
+                                Circle()
+                                    .fill(Color(nsColor: preset.settings.lipLinerNSColor))
                                     .frame(width: 10, height: 10)
                             }
 
@@ -168,13 +167,12 @@ struct PresetsListView: View {
             isPresented: $showDeleteConfirm
         ) {
             Button("Delete", role: .destructive) {
-                if let p = presetToDelete {
-                    // ✅ FIXED
-                    presetStore.deletePreset(p)
+                if let preset = presetToDelete {
+                    presetStore.deletePreset(preset)
                 }
             }
 
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text("This cannot be undone.")
         }

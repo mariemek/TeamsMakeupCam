@@ -1,8 +1,5 @@
 import SwiftUI
 
-/// Sidebar panel that exposes all makeup controls.
-/// Bind `settings` to a `@State` / `@ObservedObject` value in the parent view.
-/// Also requires `StudioViewModel` as an environment object for camera selection.
 struct ControlsSidebarView: View {
     @EnvironmentObject private var viewModel: StudioViewModel
     @EnvironmentObject private var presetStore: PresetStore
@@ -15,21 +12,18 @@ struct ControlsSidebarView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
 
-                // ── Camera ───────────────────────────────────────────────────
                 sectionHeader("Camera")
                 cameraPickerRow
                     .padding(.bottom, 12)
 
                 Divider().padding(.horizontal, 16)
 
-                // ── My Look ──────────────────────────────────────────────────
                 sectionHeader("My Look")
                 presetActionsRow
                     .padding(.bottom, 12)
 
                 Divider().padding(.horizontal, 16)
 
-                // ── Skin ─────────────────────────────────────────────────────
                 sectionHeader("Skin")
                 intensityRow(
                     label: "Smoothing",
@@ -40,100 +34,24 @@ struct ControlsSidebarView: View {
 
                 Divider().padding(.horizontal, 16)
 
-                // ── Eyes ─────────────────────────────────────────────────────
                 sectionHeader("Eyes")
                 intensityRow(
                     label: "Eyeliner",
                     systemImage: "eye",
                     value: $settings.eyelinerIntensity
                 )
-
-                intensityRow(
-                    label: "Lashes",
-                    systemImage: "eye.fill",
-                    value: $settings.lashesIntensity
-                )
-
-                pickerRow(
-                    label: "Lash style",
-                    systemImage: "sparkles",
-                    selection: $settings.lashStyle,
-                    options: MakeupSettings.LashStyle.allCases
-                ) { style in
-                    style.displayName
-                }
-
-                intensityRow(
-                    label: "Lash opacity",
-                    systemImage: "circle.lefthalf.filled",
-                    value: $settings.lashesOpacity
-                )
-
-                Spacer().frame(height: 8)
-
-                Divider().padding(.horizontal, 16)
-
-                // ── Blush ────────────────────────────────────────────────────
-                sectionHeader("Blush")
-                colorRow(
-                    label: "Blush color",
-                    systemImage: "paintpalette",
-                    color: $settings.blushColor
-                )
-
-                intensityRow(
-                    label: "Blush intensity",
-                    systemImage: "circle.grid.2x2",
-                    value: $settings.blushIntensity
-                )
-
-                signedSliderRow(
-                    label: "Horizontal placement",
-                    systemImage: "arrow.left.and.right",
-                    value: $settings.blushPlacementX,
-                    range: -0.20...0.20
-                )
-
-                signedSliderRow(
-                    label: "Vertical placement",
-                    systemImage: "arrow.up.and.down",
-                    value: $settings.blushPlacementY,
-                    range: -0.20...0.20
-                )
-
-                compactValueRow(
-                    label: "Blush width",
-                    systemImage: "arrow.left.and.right.circle",
-                    value: $settings.blushWidth,
-                    range: 0.7...1.4,
-                    format: "%.2f"
-                )
-
-                compactValueRow(
-                    label: "Blush height",
-                    systemImage: "arrow.up.and.down.circle",
-                    value: $settings.blushHeight,
-                    range: 0.7...1.4,
-                    format: "%.2f"
-                )
-
-                compactValueRow(
-                    label: "Blush feather",
-                    systemImage: "cloud.fog",
-                    value: $settings.blushFeather,
-                    range: 0...1,
-                    format: "%.2f"
-                )
                 .padding(.bottom, 8)
 
                 Divider().padding(.horizontal, 16)
 
-                // ── Lips ─────────────────────────────────────────────────────
                 sectionHeader("Lips")
                 colorRow(
                     label: "Lipstick color",
                     systemImage: "paintpalette",
-                    color: $settings.lipstickColor
+                    color: Binding<Color>(
+                        get: { Color(nsColor: settings.lipstickNSColor) },
+                        set: { settings.lipstickNSColor = NSColor($0) }
+                    )
                 )
                 intensityRow(
                     label: "Lipstick opacity",
@@ -143,7 +61,10 @@ struct ControlsSidebarView: View {
                 colorRow(
                     label: "Lip liner color",
                     systemImage: "pencil.tip",
-                    color: $settings.lipLinerColor
+                    color: Binding<Color>(
+                        get: { Color(nsColor: settings.lipLinerNSColor) },
+                        set: { settings.lipLinerNSColor = NSColor($0) }
+                    )
                 )
                 intensityRow(
                     label: "Lip liner",
@@ -164,8 +85,6 @@ struct ControlsSidebarView: View {
                 .environmentObject(presetStore)
         }
     }
-
-    // MARK: - Camera
 
     private var cameraPickerRow: some View {
         HStack(spacing: 10) {
@@ -198,8 +117,6 @@ struct ControlsSidebarView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 5)
     }
-
-    // MARK: - Preset actions row
 
     private var presetActionsRow: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -235,6 +152,7 @@ struct ControlsSidebarView: View {
                 Button {
                     settings = MakeupSettings()
                     presetStore.setActive(nil)
+                    viewModel.syncMakeupSettingsToProcessor()
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                 }
@@ -246,8 +164,6 @@ struct ControlsSidebarView: View {
             .padding(.top, 4)
         }
     }
-
-    // MARK: - Row builders
 
     @ViewBuilder
     private func sectionHeader(_ title: String) -> some View {
@@ -310,7 +226,7 @@ struct ControlsSidebarView: View {
                             .monospacedDigit()
                     }
                 }
-                .frame(width: 44, alignment: .trailing)
+                .frame(width: 36, alignment: .trailing)
             }
 
             Slider(value: value, in: 0...1)
@@ -320,105 +236,11 @@ struct ControlsSidebarView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
     }
-
-    @ViewBuilder
-    private func signedSliderRow(
-        label: String,
-        systemImage: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .frame(width: 18)
-                    .foregroundStyle(.secondary)
-
-                Text(label)
-                    .font(.system(size: 13))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(String(format: "%+.2f", value.wrappedValue))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .frame(width: 44, alignment: .trailing)
-            }
-
-            Slider(value: value, in: range)
-                .padding(.leading, 28)
-                .tint(.primary.opacity(0.6))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private func compactValueRow(
-        label: String,
-        systemImage: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        format: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .frame(width: 18)
-                    .foregroundStyle(.secondary)
-
-                Text(label)
-                    .font(.system(size: 13))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(String(format: format, value.wrappedValue))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .frame(width: 44, alignment: .trailing)
-            }
-
-            Slider(value: value, in: range)
-                .padding(.leading, 28)
-                .tint(.primary.opacity(0.6))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private func pickerRow<Option: Hashable>(
-        label: String,
-        systemImage: String,
-        selection: Binding<Option>,
-        options: [Option],
-        title: @escaping (Option) -> String
-    ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .frame(width: 18)
-                .foregroundStyle(.secondary)
-
-            Text(label)
-                .font(.system(size: 13))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Picker("", selection: selection) {
-                ForEach(options, id: \.self) { option in
-                    Text(title(option)).tag(option)
-                }
-            }
-            .labelsHidden()
-            .frame(width: 120)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 5)
-    }
 }
 
 #Preview {
     ControlsSidebarView(settings: .constant(MakeupSettings()))
         .environmentObject(StudioViewModel())
         .environmentObject(PresetStore())
-        .frame(height: 760)
+        .frame(height: 680)
 }
