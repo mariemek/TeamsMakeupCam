@@ -13,28 +13,67 @@ protocol VideoFrameProcessorProtocol: AnyObject {
     func process(sampleBuffer: CMSampleBuffer)
 }
 
-/// Receives sample buffers from CameraManager, runs MediaPipe-based face landmark detection
-/// via a local helper, applies lightweight processing (e.g. smoothing), composites makeup
-/// into pixels for the HTTP virtual camera, and publishes landmarks + processed frames
-/// for Swift renderers to draw overlays.
+/// Receives sample buffers from CameraManager, runs MediaPipe-based face landmark
+/// detection via a local helper, composites makeup into actual pixels for the HTTP
+/// virtual camera, and publishes landmarks + processed frames for the live preview.
+///
+/// ## Pipeline guarantee
+///
+/// Every camera frame that enters `process(sampleBuffer:)` is composited with the
+/// most-recent detected landmarks and pushed to `SharedFrameProvider`.  Raw /
+/// un-makeup'd frames **never** reach the HTTP server once a face has been detected.
+///
+/// ```
+/// Camera Frame
+///   -> Skin Smoothing (cached contour)
+///   -> OffscreenMakeupCompositor (cached landmarks + current settings)
+///   -> SharedFrameProvider -> HTTP Server
+///
+/// Async (non-blocking):
+///   Camera Frame -> MediaPipe -> update cached landmarks
+/// ```
 final class VideoFrameProcessor: NSObject, VideoFrameProcessorProtocol, CameraManagerSampleBufferDelegate {
 
     weak var delegate: VideoFrameProcessorDelegate?
 
-    /// Current settings (e.g. smoothing strength); set from main thread, read on processing queue.
-    var currentMakeupSettings = MakeupSettings()
+    /// Current makeup settings.  Thread-safe — protected by `settingsLock`.
+    /// Written from the main thread (Combine sink in StudioViewModel),
+    /// read on the processing queue.
+    var currentMakeupSettings: MakeupSettings {
+        get { settingsLock.withLock { _settings } }
+        set { settingsLock.withLock { _settings = newValue } }
+    }
 
-    private let processingQueue = DispatchQueue(label: "TeamsMakeupCam.VideoProcessingQueue")
+    // MARK: - Private state
+
+    private let processingQueue = DispatchQueue(label: "TeamsMakeupCam.VideoProcessingQueue", qos: .userInitiated)
     private let faceLandmarkService: FaceLandmarkServiceProtocol
     private let skinSmoothingRenderer = SkinSmoothingRenderer()
     private let compositor = OffscreenMakeupCompositor()
 
-    private var frameCount: Int = 0
-    /// Only one landmark request at a time to avoid lag, CPU spikes, and stale results.
-    private var isProcessingLandmarks = false
+    /// Thread-safe settings storage.
+    private var _settings = MakeupSettings()
+    private let settingsLock = NSLock()
 
-    init(faceLandmarkService: FaceLandmarkServiceProtocol = FaceLandmarkService()) {
+    /// Most-recent successfully-detected landmarks.
+    /// Accessed ONLY on `processingQueue` — no lock needed.
+    private var cachedLandmarks: [FaceLandmarks] = []
+
+    /// Gate: only one landmark request in flight at a time.
+    /// Accessed ONLY on `processingQueue`.
+    private var isDetectingLandmarks = false
+
+    private var frameCount: Int = 0
+
+    // MARK: - Init
+
+    init(faceLandmarkService: FaceLandmarkServiceProtocol? = nil) {
+        // Use a dedicated background queue for landmark callbacks so we never
+        // block the main thread with compositing work.
+        let cbQueue = DispatchQueue(label: "TeamsMakeupCam.LandmarkCallback", qos: .userInitiated)
         self.faceLandmarkService = faceLandmarkService
+            ?? FaceLandmarkService(callbackQueue: cbQueue)
+        super.init()
     }
 
     // MARK: - CameraManagerSampleBufferDelegate
@@ -50,53 +89,70 @@ final class VideoFrameProcessor: NSObject, VideoFrameProcessorProtocol, CameraMa
             guard let self else { return }
 
             self.frameCount += 1
-            if self.frameCount % 30 == 0 {
+            if self.frameCount % 90 == 0 {
                 let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                let timeSeconds = CMTimeGetSeconds(pts)
-                print("VideoFrameProcessor: frame #\(self.frameCount) at \(timeSeconds)s")
+                print("VideoFrameProcessor: frame #\(self.frameCount) pts=\(CMTimeGetSeconds(pts))s  landmarks=\(self.cachedLandmarks.count)")
             }
 
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-
-            guard !self.isProcessingLandmarks else { return }
-            self.isProcessingLandmarks = true
-
             let sourceImage = CIImage(cvPixelBuffer: pixelBuffer)
+            let settings = self.currentMakeupSettings
+            let landmarks = self.cachedLandmarks
 
-            self.faceLandmarkService.process(sampleBuffer: sampleBuffer) { [weak self] face in
-                guard let self else { return }
+            // ── 1. Skin smoothing (using cached face contour) ──────────────
+            let smoothed: CIImage
+            if let contour = landmarks.first?.faceContour, !contour.isEmpty {
+                smoothed = self.skinSmoothingRenderer.smoothImage(
+                    sourceImage,
+                    faceContour: contour,
+                    strength: settings.smoothingStrength
+                )
+            } else {
+                smoothed = sourceImage
+            }
 
-                let list: [FaceLandmarks] = face.map { [$0] } ?? []
-                let settings = self.currentMakeupSettings
+            // ── 2. Composite makeup → push to HTTP server ─────────────────
+            // This runs on EVERY frame using cached landmarks, so the HTTP
+            // stream always shows makeup (never raw camera).
+            if let jpegData = self.compositor.composite(
+                baseImage: smoothed,
+                landmarks: landmarks,
+                settings: settings
+            ) {
+                SharedFrameProvider.shared.update(jpegData)
+            }
 
-                let processed: CIImage
-                if let contour = face?.faceContour, !contour.isEmpty {
-                    processed = self.skinSmoothingRenderer.smoothImage(
-                        sourceImage,
-                        faceContour: contour,
-                        strength: settings.smoothingStrength
-                    )
-                } else {
-                    processed = sourceImage
-                }
+            // ── 3. Kick off async landmark detection (non-blocking) ───────
+            // The preview delegate is notified only when fresh landmarks
+            // arrive (not on every frame) to avoid flooding the main thread.
+            // The preview's AVCaptureVideoPreviewLayer provides live video
+            // independently; only the CAShapeLayer overlays need landmarks.
+            if !self.isDetectingLandmarks {
+                self.isDetectingLandmarks = true
 
-                // Composite makeup into pixels for the HTTP virtual camera.
-                // This runs on the landmark-callback queue (background) — NOT main thread.
-                if let jpegData = self.compositor.composite(
-                    baseImage: processed,
-                    landmarks: list,
-                    settings: settings
-                ) {
-                    SharedFrameProvider.shared.update(jpegData)
-                }
+                // Capture the smoothed frame for the delegate callback.
+                let frameForPreview = smoothed
 
-                // Reset flag and notify delegate on processingQueue so isProcessingLandmarks is thread-safe.
-                self.processingQueue.async {
-                    self.isProcessingLandmarks = false
-                    self.delegate?.videoFrameProcessor(self, didUpdate: list, processedFrame: processed)
+                self.faceLandmarkService.process(sampleBuffer: sampleBuffer) { [weak self] face in
+                    guard let self else { return }
+                    self.processingQueue.async {
+                        // Only update cache when we get a real detection.
+                        // On failure (nil), keep last good landmarks so
+                        // makeup doesn't vanish between detections.
+                        if let face {
+                            self.cachedLandmarks = [face]
+                        }
+                        self.isDetectingLandmarks = false
+
+                        // Notify preview delegate with latest landmarks.
+                        self.delegate?.videoFrameProcessor(
+                            self,
+                            didUpdate: self.cachedLandmarks,
+                            processedFrame: frameForPreview
+                        )
+                    }
                 }
             }
         }
     }
 }
-
