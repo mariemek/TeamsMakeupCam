@@ -14,8 +14,9 @@ protocol VideoFrameProcessorProtocol: AnyObject {
 }
 
 /// Receives sample buffers from CameraManager, runs MediaPipe-based face landmark detection
-/// via a local helper, applies lightweight processing (e.g. smoothing), and publishes
-/// landmarks + processed frames for Swift renderers to draw overlays.
+/// via a local helper, applies lightweight processing (e.g. smoothing), composites makeup
+/// into pixels for the HTTP virtual camera, and publishes landmarks + processed frames
+/// for Swift renderers to draw overlays.
 final class VideoFrameProcessor: NSObject, VideoFrameProcessorProtocol, CameraManagerSampleBufferDelegate {
 
     weak var delegate: VideoFrameProcessorDelegate?
@@ -26,6 +27,7 @@ final class VideoFrameProcessor: NSObject, VideoFrameProcessorProtocol, CameraMa
     private let processingQueue = DispatchQueue(label: "TeamsMakeupCam.VideoProcessingQueue")
     private let faceLandmarkService: FaceLandmarkServiceProtocol
     private let skinSmoothingRenderer = SkinSmoothingRenderer()
+    private let compositor = OffscreenMakeupCompositor()
 
     private var frameCount: Int = 0
     /// Only one landmark request at a time to avoid lag, CPU spikes, and stale results.
@@ -76,6 +78,16 @@ final class VideoFrameProcessor: NSObject, VideoFrameProcessorProtocol, CameraMa
                     )
                 } else {
                     processed = sourceImage
+                }
+
+                // Composite makeup into pixels for the HTTP virtual camera.
+                // This runs on the landmark-callback queue (background) — NOT main thread.
+                if let jpegData = self.compositor.composite(
+                    baseImage: processed,
+                    landmarks: list,
+                    settings: settings
+                ) {
+                    SharedFrameProvider.shared.update(jpegData)
                 }
 
                 // Reset flag and notify delegate on processingQueue so isProcessingLandmarks is thread-safe.
