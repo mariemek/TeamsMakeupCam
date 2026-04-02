@@ -18,6 +18,7 @@ final class StudioViewModel: ObservableObject {
     private let deviceDiscoveryService: DeviceDiscoveryServiceProtocol
     private let cameraManager: CameraManager
     private let frameProcessor: VideoFrameProcessor
+    private var settingsSyncCancellable: AnyCancellable?
 
     var captureSession: AVCaptureSession {
         cameraManager.captureSession
@@ -36,6 +37,14 @@ final class StudioViewModel: ObservableObject {
         self.cameraManager.sampleBufferDelegate = frameProcessor
         self.frameProcessor.delegate = self
         self.frameProcessor.currentMakeupSettings = makeupSettings
+
+        // Auto-sync settings to processor (and thus to the HTTP compositor)
+        // whenever the UI changes them. Throttle to avoid flooding.
+        settingsSyncCancellable = $makeupSettings
+            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] newSettings in
+                self?.frameProcessor.currentMakeupSettings = newSettings
+            }
 
         requestCameraAccessAndLoadDevices()
     }
