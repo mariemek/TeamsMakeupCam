@@ -10,6 +10,9 @@ struct TeamsMakeupCamApp: App {
         SidecarLauncher.shared.start()
         // Start HTTP virtual camera server (port 9010).
         LocalVirtualCameraServer.shared.start()
+        // Activate the Camera Extension (registers with the OS).
+        // First launch will prompt user approval in System Settings.
+        SystemExtensionActivator.shared.activate()
     }
 
     var body: some Scene {

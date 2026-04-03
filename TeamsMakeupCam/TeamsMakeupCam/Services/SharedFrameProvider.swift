@@ -29,7 +29,8 @@ final class SharedFrameProvider {
         queue.sync { _frameNumber }
     }
 
-    /// Store a new composited frame and notify MJPEG clients.
+    /// Store a new composited frame, notify MJPEG clients,
+    /// and write to App Group for the Camera Extension.
     func update(_ jpegData: Data) {
         queue.sync {
             _jpegData = jpegData
@@ -42,5 +43,7 @@ final class SharedFrameProvider {
                 object: jpegData
             )
         }
+        // Write to App Group shared container for the Camera Extension process.
+        SharedFrameWriter.shared.writeFrame(jpegData)
     }
 }
