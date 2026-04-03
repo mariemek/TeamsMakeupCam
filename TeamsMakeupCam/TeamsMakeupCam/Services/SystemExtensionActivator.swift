@@ -87,10 +87,10 @@ final class SystemExtensionActivator: NSObject, OSSystemExtensionRequestDelegate
                 logger.error("Extension bundle not found in Contents/Library/SystemExtensions/")
             case .extensionMissingIdentifier:
                 logger.error("Extension bundle is missing CFBundleIdentifier.")
-            case .duplicateExtension:
-                logger.error("Another copy of this extension is already installed.")
             case .authorizationRequired:
                 logger.error("User authorization required — check System Settings → Privacy & Security.")
+            case .requestCanceled:
+                logger.error("System extension request was canceled.")
             @unknown default:
                 logger.error("Unhandled OSSystemExtensionError code: \(osError.code.rawValue)")
             }

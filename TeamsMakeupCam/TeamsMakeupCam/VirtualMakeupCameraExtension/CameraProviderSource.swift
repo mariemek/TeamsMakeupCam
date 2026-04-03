@@ -1,17 +1,21 @@
 import Foundation
 import CoreMediaIO
 
-/// Top-level CMIOExtension provider that owns a single virtual camera device.
 final class CameraProviderSource: NSObject, CMIOExtensionProviderSource {
 
-    let provider: CMIOExtensionProvider
-    private let deviceSource: CameraDeviceSource
+    var provider: CMIOExtensionProvider!
+    private var deviceSource: CameraDeviceSource!
 
     init(clientQueue: DispatchQueue?) {
-        provider = CMIOExtensionProvider(source: nil, clientQueue: clientQueue)
-        deviceSource = CameraDeviceSource()
         super.init()
-        provider.source = self
+
+        deviceSource = CameraDeviceSource()
+
+        provider = CMIOExtensionProvider(
+            source: self,
+            clientQueue: clientQueue
+        )
+
         do {
             try provider.addDevice(deviceSource.device)
         } catch {
@@ -19,15 +23,9 @@ final class CameraProviderSource: NSObject, CMIOExtensionProviderSource {
         }
     }
 
-    // MARK: - CMIOExtensionProviderSource
+    func connect(to client: CMIOExtensionClient) throws {}
 
-    func connect(to client: CMIOExtensionClient) throws {
-        // Accept all clients (Teams, Zoom, FaceTime, etc.)
-    }
-
-    func disconnect(from client: CMIOExtensionClient) {
-        // No-op
-    }
+    func disconnect(from client: CMIOExtensionClient) {}
 
     var availableProperties: Set<CMIOExtensionProperty> {
         [.providerManufacturer]
@@ -43,7 +41,5 @@ final class CameraProviderSource: NSObject, CMIOExtensionProviderSource {
         return props
     }
 
-    func setProviderProperties(_ properties: CMIOExtensionProviderProperties) throws {
-        // Read-only
-    }
+    func setProviderProperties(_ properties: CMIOExtensionProviderProperties) throws {}
 }

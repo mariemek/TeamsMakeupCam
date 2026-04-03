@@ -1,31 +1,24 @@
 import Foundation
 import CoreMediaIO
 import CoreVideo
+import CoreMedia
 import IOKit.audio
 
-/// Output stream that delivers video frames to consuming apps.
-///
-/// Frames are read from a memory-mapped file written by the host app via App Group.
-/// When no host frame is available, a solid-color placeholder is generated.
 final class CameraStreamSource: NSObject, CMIOExtensionStreamSource {
 
-    let stream: CMIOExtensionStream
+    var stream: CMIOExtensionStream!
 
     private let frameWidth: Int32 = 1920
     private let frameHeight: Int32 = 1080
     private let frameRate: Float64 = 30.0
 
     private var timer: DispatchSourceTimer?
-    private let timerQueue = DispatchQueue(label: "CameraStream.timer", qos: .userInteractive)
+    private let timerQueue = DispatchQueue(label: "CameraStream.timer")
 
-    private var sequenceNumber: UInt64 = 0
     private let formatDescription: CMFormatDescription
-
-    /// Shared frame reader for IPC with host app.
     private let frameReader = SharedFrameReader()
 
     override init() {
-        // Create format description for 32BGRA
         var desc: CMFormatDescription?
         CMVideoFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
@@ -37,35 +30,26 @@ final class CameraStreamSource: NSObject, CMIOExtensionStreamSource {
         )
         formatDescription = desc!
 
-        let streamFormat = CMIOExtensionStreamFormat(
-            formatDescription: formatDescription,
-            maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
-            minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
-            validFrameDurations: nil
-        )
+        super.init()
 
         stream = CMIOExtensionStream(
             localizedName: "TeamsMakeupCam",
             streamID: UUID(),
             direction: .source,
-            clockType: .hostTimeClock,
-            source: nil
+            clockType: .hostTime,
+            source: self
         )
-
-        super.init()
-        stream.source = self
     }
 
-    // MARK: - CMIOExtensionStreamSource
-
     var formats: [CMIOExtensionStreamFormat] {
-        let fmt = CMIOExtensionStreamFormat(
-            formatDescription: formatDescription,
-            maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
-            minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
-            validFrameDurations: nil
-        )
-        return [fmt]
+        [
+            CMIOExtensionStreamFormat(
+                formatDescription: formatDescription,
+                maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
+                minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
+                validFrameDurations: nil
+            )
+        ]
     }
 
     var activeFormatIndex: Int = 0
@@ -78,18 +62,19 @@ final class CameraStreamSource: NSObject, CMIOExtensionStreamSource {
         -> CMIOExtensionStreamProperties
     {
         let props = CMIOExtensionStreamProperties(dictionary: [:])
+
         if properties.contains(.streamActiveFormatIndex) {
             props.activeFormatIndex = 0
         }
+
         if properties.contains(.streamFrameDuration) {
             props.frameDuration = CMTime(value: 1, timescale: CMTimeScale(frameRate))
         }
+
         return props
     }
 
-    func setStreamProperties(_ properties: CMIOExtensionStreamProperties) throws {
-        // Read-only
-    }
+    func setStreamProperties(_ properties: CMIOExtensionStreamProperties) throws {}
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
         true
@@ -113,30 +98,25 @@ final class CameraStreamSource: NSObject, CMIOExtensionStreamSource {
         timer = nil
     }
 
-    // MARK: - Frame emission
-
     private func emitFrame() {
-        var pixelBuffer: CVPixelBuffer?
+        var pixelBuffer = frameReader.readLatestFrame(
+            width: Int(frameWidth),
+            height: Int(frameHeight)
+        )
 
-        // Try to read a frame from the host app via shared memory
-        if let hostFrame = frameReader.readLatestFrame(width: Int(frameWidth), height: Int(frameHeight)) {
-            pixelBuffer = hostFrame
-        }
-
-        // Fallback: generate a solid dark-gray placeholder
         if pixelBuffer == nil {
             pixelBuffer = createPlaceholderBuffer()
         }
 
         guard let buffer = pixelBuffer else { return }
 
-        var sbuf: CMSampleBuffer?
         var timingInfo = CMSampleTimingInfo(
             duration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
             presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
             decodeTimeStamp: .invalid
         )
 
+        var sbuf: CMSampleBuffer?
         CMSampleBufferCreateForImageBuffer(
             allocator: kCFAllocatorDefault,
             imageBuffer: buffer,
@@ -153,41 +133,40 @@ final class CameraStreamSource: NSObject, CMIOExtensionStreamSource {
         stream.send(
             sampleBuffer,
             discontinuity: [],
-            hostTimeInNanoseconds: UInt64(timingInfo.presentationTimeStamp.seconds * 1_000_000_000)
+            hostTimeInNanoseconds: UInt64(
+                timingInfo.presentationTimeStamp.seconds * 1_000_000_000
+            )
         )
-
-        sequenceNumber += 1
     }
 
     private func createPlaceholderBuffer() -> CVPixelBuffer? {
         var pb: CVPixelBuffer?
+
         let status = CVPixelBufferCreate(
             kCFAllocatorDefault,
             Int(frameWidth),
             Int(frameHeight),
             kCVPixelFormatType_32BGRA,
-            [
-                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary
-            ] as CFDictionary,
+            [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary,
             &pb
         )
+
         guard status == kCVReturnSuccess, let buffer = pb else { return nil }
 
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
 
-        let baseAddress = CVPixelBufferGetBaseAddress(buffer)!
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+        let base = CVPixelBufferGetBaseAddress(buffer)!
+        let stride = CVPixelBufferGetBytesPerRow(buffer)
 
-        // Fill with dark gray (BGRA: 40, 40, 40, 255)
         for y in 0..<Int(frameHeight) {
-            let row = baseAddress.advanced(by: y * bytesPerRow)
+            let row = base.advanced(by: y * stride)
             for x in 0..<Int(frameWidth) {
                 let pixel = row.advanced(by: x * 4).assumingMemoryBound(to: UInt8.self)
-                pixel[0] = 40   // B
-                pixel[1] = 40   // G
-                pixel[2] = 40   // R
-                pixel[3] = 255  // A
+                pixel[0] = 40
+                pixel[1] = 40
+                pixel[2] = 40
+                pixel[3] = 255
             }
         }
 

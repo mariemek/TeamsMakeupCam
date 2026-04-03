@@ -1,13 +1,14 @@
 import Foundation
 import CoreMediaIO
 
-/// A single virtual camera device with one output stream.
 final class CameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
 
-    let device: CMIOExtensionDevice
-    let streamSource: CameraStreamSource
+    var device: CMIOExtensionDevice!
+    var streamSource: CameraStreamSource!
 
     override init() {
+        super.init()
+
         let localizedName = "TeamsMakeupCam"
         streamSource = CameraStreamSource()
 
@@ -15,11 +16,8 @@ final class CameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
             localizedName: localizedName,
             deviceID: UUID(),
             legacyDeviceID: nil,
-            source: nil
+            source: self
         )
-
-        super.init()
-        device.source = self
 
         do {
             try device.addStream(streamSource.stream)
@@ -27,8 +25,6 @@ final class CameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
             fatalError("CameraDeviceSource: failed to add stream: \(error)")
         }
     }
-
-    // MARK: - CMIOExtensionDeviceSource
 
     var availableProperties: Set<CMIOExtensionProperty> {
         [.deviceTransportType, .deviceModel]
@@ -38,16 +34,17 @@ final class CameraDeviceSource: NSObject, CMIOExtensionDeviceSource {
         -> CMIOExtensionDeviceProperties
     {
         let props = CMIOExtensionDeviceProperties(dictionary: [:])
+
         if properties.contains(.deviceTransportType) {
             props.transportType = kIOAudioDeviceTransportTypeVirtual
         }
+
         if properties.contains(.deviceModel) {
             props.model = "TeamsMakeupCam Virtual Camera"
         }
+
         return props
     }
 
-    func setDeviceProperties(_ properties: CMIOExtensionDeviceProperties) throws {
-        // Read-only
-    }
+    func setDeviceProperties(_ properties: CMIOExtensionDeviceProperties) throws {}
 }

@@ -6,28 +6,130 @@ final class SidecarLauncher {
 
     private var process: Process?
     private let port = 9001
+    private let startLock = NSLock()
+
+    private lazy var healthURL = URL(string: "http://127.0.0.1:\(port)/health")!
 
     private init() {}
 
     func start() {
-        guard process == nil else {
-            print("SidecarLauncher: already started.")
+        startLock.lock()
+        defer { startLock.unlock() }
+
+        if isHealthy(timeout: 0.5) {
+            print("SidecarLauncher: helper already healthy on port \(port)")
+            installTerminationObserver()
             return
         }
 
-        if isPortInUse(port) {
-            print("SidecarLauncher: port \(port) already in use — assuming helper is already running.")
+        if let process, process.isRunning {
+            print("SidecarLauncher: process already running, waiting for health.")
+            waitForHealthyStartup(timeout: 30.0) { started in
+                print(started
+                    ? "SidecarLauncher: ✅ helper became healthy"
+                    : "SidecarLauncher: ❌ helper still not healthy")
+            }
+            installTerminationObserver()
             return
         }
 
-        guard let helperURL = Bundle.main.url(forResource: "mediapipe_helper", withExtension: nil) else {
-            print("SidecarLauncher: bundled mediapipe_helper not found.")
+        let resourcesURL = Bundle.main.resourceURL
+        let taskPath = resourcesURL?.appendingPathComponent("face_landmarker.task").path
+
+        let candidates = helperLaunchCandidates()
+
+        guard !candidates.isEmpty else {
+            print("SidecarLauncher: no helper launch candidates found in app bundle.")
             return
         }
 
+        for candidate in candidates {
+            if launch(candidate: candidate, taskPath: taskPath) {
+                installTerminationObserver()
+                return
+            }
+        }
+
+        print("SidecarLauncher: failed to launch any helper candidate.")
+    }
+
+    func stop() {
+        startLock.lock()
+        defer { startLock.unlock() }
+
+        guard let proc = process, proc.isRunning else { return }
+        proc.terminate()
+        process = nil
+    }
+
+    func waitUntilHealthy(timeout: TimeInterval) -> Bool {
+        if isHealthy(timeout: 0.5) { return true }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isHealthy(timeout: 0.5) { return true }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        return false
+    }
+
+    @objc private func appWillTerminate() {
+        stop()
+    }
+
+    // MARK: - Launch
+
+    private enum HelperCandidate {
+        case executable(URL)
+        case pythonScript(python: URL, script: URL)
+    }
+
+    private func helperLaunchCandidates() -> [HelperCandidate] {
+        var result: [HelperCandidate] = []
+
+        if let bundledExec = Bundle.main.url(forResource: "mediapipe_helper", withExtension: nil) {
+            result.append(.executable(bundledExec))
+        }
+
+        if let resourcesURL = Bundle.main.resourceURL {
+            let distExec = resourcesURL.appendingPathComponent("dist/mediapipe_helper")
+            if FileManager.default.fileExists(atPath: distExec.path) {
+                result.append(.executable(distExec))
+            }
+
+            let script = resourcesURL.appendingPathComponent("mediapipe_helper.py")
+            let python = URL(fileURLWithPath: "/usr/bin/python3")
+            if FileManager.default.fileExists(atPath: script.path),
+               FileManager.default.fileExists(atPath: python.path) {
+                result.append(.pythonScript(python: python, script: script))
+            }
+        }
+
+        return result
+    }
+
+    private func launch(candidate: HelperCandidate, taskPath: String?) -> Bool {
         let proc = Process()
-        proc.executableURL = helperURL
-        proc.currentDirectoryURL = helperURL.deletingLastPathComponent()
+
+        switch candidate {
+        case .executable(let url):
+            proc.executableURL = url
+            proc.currentDirectoryURL = url.deletingLastPathComponent()
+            print("SidecarLauncher: trying bundled helper \(url.path)")
+        case .pythonScript(let python, let script):
+            proc.executableURL = python
+            proc.arguments = [script.path]
+            proc.currentDirectoryURL = script.deletingLastPathComponent()
+            print("SidecarLauncher: trying python helper \(script.path)")
+        }
+
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONUNBUFFERED"] = "1"
+        env["TEAMSMAKEUPCAM_PORT"] = "\(port)"
+        if let taskPath {
+            env["TEAMSMAKEUPCAM_TASK_PATH"] = taskPath
+        }
+        proc.environment = env
 
         let pipe = Pipe()
         proc.standardOutput = pipe
@@ -43,32 +145,70 @@ final class SidecarLauncher {
 
         proc.terminationHandler = { [weak self] p in
             print("SidecarLauncher: sidecar exited with status \(p.terminationStatus)")
-            self?.process = nil
+            if self?.process === p {
+                self?.process = nil
+            }
         }
 
         do {
             try proc.run()
             process = proc
             print("SidecarLauncher: ✅ launched pid=\(proc.processIdentifier)")
-
-            // PyInstaller --onefile binaries decompress on first run (can take 15–30 s).
-            // Poll until the server is actually listening before declaring success.
-            waitForServerStartup(timeout: 30.0) { [weak self] started in
-                guard let self else { return }
-                if started {
-                    print("SidecarLauncher: ✅ helper is listening on port \(self.port)")
-                } else {
-                    print("SidecarLauncher: ❌ helper did not start on port \(self.port) within timeout")
-                    if let proc = self.process, proc.isRunning {
-                        print("SidecarLauncher: process still running but server not reachable yet")
-                    } else {
-                        print("SidecarLauncher: process is no longer running")
-                    }
-                }
-            }
         } catch {
             print("SidecarLauncher: failed to launch helper: \(error)")
+            return false
         }
+
+        let started = waitUntilHealthy(timeout: 12.0)
+        if started {
+            print("SidecarLauncher: ✅ helper is healthy on port \(port)")
+            return true
+        }
+
+        print("SidecarLauncher: helper did not become healthy after launch attempt")
+        if proc.isRunning {
+            proc.terminate()
+        }
+        if process === proc {
+            process = nil
+        }
+        return false
+    }
+
+    // MARK: - Health
+
+    private func waitForHealthyStartup(timeout: TimeInterval, completion: @escaping (Bool) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            completion(self.waitUntilHealthy(timeout: timeout))
+        }
+    }
+
+    private func isHealthy(timeout: TimeInterval) -> Bool {
+        var request = URLRequest(url: healthURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeout
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var ok = false
+
+        let task = URLSession.shared.dataTask(with: request) { _, response, _ in
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                ok = true
+            }
+            semaphore.signal()
+        }
+
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + timeout + 0.2)
+        return ok
+    }
+
+    private func installTerminationObserver() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSApplication.willTerminateNotification,
+            object: nil
+        )
 
         NotificationCenter.default.addObserver(
             self,
@@ -76,58 +216,5 @@ final class SidecarLauncher {
             name: NSApplication.willTerminateNotification,
             object: nil
         )
-    }
-
-    func stop() {
-        guard let proc = process, proc.isRunning else { return }
-        proc.terminate()
-        process = nil
-    }
-
-    @objc private func appWillTerminate() {
-        stop()
-    }
-
-    // MARK: - Startup wait
-
-    private func waitForServerStartup(timeout: TimeInterval, completion: @escaping (Bool) -> Void) {
-        let deadline = Date().addingTimeInterval(timeout)
-
-        func poll() {
-            if isPortInUse(port) {
-                completion(true)
-                return
-            }
-            if Date() >= deadline {
-                completion(false)
-                return
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                poll()
-            }
-        }
-
-        DispatchQueue.global().async { poll() }
-    }
-
-    // MARK: - Port check
-
-    private func isPortInUse(_ port: Int) -> Bool {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/lsof")
-        task.arguments = ["-i", ":\(port)", "-sTCP:LISTEN", "-t"]
-
-        let out = Pipe()
-        task.standardOutput = out
-        task.standardError = Pipe()
-
-        do {
-            try task.run()
-            task.waitUntilExit()
-            let data = out.fileHandleForReading.readDataToEndOfFile()
-            return !data.isEmpty
-        } catch {
-            return false
-        }
     }
 }
