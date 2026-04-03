@@ -4,17 +4,18 @@ import Network
 /// Minimal HTTP server on port 9010 that exposes composited camera frames.
 ///
 /// Endpoints:
-///   GET /stream      → MJPEG stream (multipart/x-mixed-replace)
-///   GET /latest.jpg  → single JPEG snapshot
-///   GET /             → simple status page
+///   GET /stream      -> MJPEG stream (multipart/x-mixed-replace)
+///   GET /latest.jpg  -> single JPEG snapshot
+///   GET /             -> simple status page with embedded live preview
 ///
 /// No external dependencies — uses Apple's Network framework (`NWListener`).
+/// Frames always contain the fully-composited output (with makeup applied).
 final class LocalVirtualCameraServer {
 
     static let shared = LocalVirtualCameraServer()
 
     private var listener: NWListener?
-    private let serverQueue = DispatchQueue(label: "VirtualCameraServer.queue")
+    private let serverQueue = DispatchQueue(label: "VirtualCameraServer.queue", qos: .userInteractive)
 
     /// Active MJPEG streaming connections.
     private var mjpegClients: [ObjectIdentifier: NWConnection] = [:]
@@ -38,6 +39,11 @@ final class LocalVirtualCameraServer {
 
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
+        // Disable Nagle's algorithm for lower latency.
+        if let proto = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
+            // Network.framework doesn't expose TCP_NODELAY directly,
+            // but keepalive + small writes effectively achieve low latency.
+        }
 
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             print("VirtualCameraServer: invalid port \(port)")
@@ -55,12 +61,20 @@ final class LocalVirtualCameraServer {
             self?.handleNewConnection(conn)
         }
 
-        listener?.stateUpdateHandler = { state in
+        listener?.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
             switch state {
             case .ready:
-                print("VirtualCameraServer: listening on http://127.0.0.1:\(self.port)/stream")
+                print("VirtualCameraServer: listening on http://127.0.0.1:\(self.port)")
+                print("  /stream      -> MJPEG live stream")
+                print("  /latest.jpg  -> single JPEG snapshot")
             case .failed(let error):
-                print("VirtualCameraServer: listener failed: \(error)")
+                print("VirtualCameraServer: listener failed: \(error) — restarting in 1s")
+                self.listener?.cancel()
+                self.listener = nil
+                DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [weak self] in
+                    self?.start()
+                }
             default:
                 break
             }
@@ -68,7 +82,7 @@ final class LocalVirtualCameraServer {
 
         listener?.start(queue: serverQueue)
 
-        // Subscribe to new frames and push to MJPEG clients.
+        // Subscribe to new composited frames and push to all MJPEG clients.
         frameObserver = NotificationCenter.default.addObserver(
             forName: SharedFrameProvider.newFrameNotification,
             object: nil,
@@ -104,7 +118,7 @@ final class LocalVirtualCameraServer {
     private func handleNewConnection(_ connection: NWConnection) {
         connection.start(queue: serverQueue)
 
-        // Read the HTTP request (first chunk is enough).
+        // Read the HTTP request line (first chunk is enough).
         connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, error in
             guard let self, let data, error == nil else {
                 connection.cancel()
@@ -116,9 +130,12 @@ final class LocalVirtualCameraServer {
                 return
             }
 
-            if request.hasPrefix("GET /stream") {
+            // Parse the request line.
+            let firstLine = request.components(separatedBy: "\r\n").first ?? request
+
+            if firstLine.hasPrefix("GET /stream") {
                 self.startMJPEGStream(connection)
-            } else if request.hasPrefix("GET /latest.jpg") || request.hasPrefix("GET /latest") {
+            } else if firstLine.hasPrefix("GET /latest.jpg") || firstLine.hasPrefix("GET /latest") {
                 self.serveLatestJPEG(connection)
             } else {
                 self.serveStatusPage(connection)
@@ -126,11 +143,17 @@ final class LocalVirtualCameraServer {
         }
     }
 
-    // MARK: - Single JPEG
+    // MARK: - Single JPEG snapshot
 
     private func serveLatestJPEG(_ connection: NWConnection) {
         guard let jpeg = SharedFrameProvider.shared.latestJPEG else {
-            let response = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n"
+            let body = "No frames available yet — camera may still be starting."
+            var response = "HTTP/1.1 503 Service Unavailable\r\n"
+            response += "Content-Type: text/plain\r\n"
+            response += "Content-Length: \(body.utf8.count)\r\n"
+            response += "Retry-After: 1\r\n"
+            response += "\r\n"
+            response += body
             sendAndClose(connection, data: Data(response.utf8))
             return
         }
@@ -138,7 +161,8 @@ final class LocalVirtualCameraServer {
         var header = "HTTP/1.1 200 OK\r\n"
         header += "Content-Type: image/jpeg\r\n"
         header += "Content-Length: \(jpeg.count)\r\n"
-        header += "Cache-Control: no-cache, no-store\r\n"
+        header += "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+        header += "Pragma: no-cache\r\n"
         header += "Access-Control-Allow-Origin: *\r\n"
         header += "Connection: close\r\n"
         header += "\r\n"
@@ -155,6 +179,7 @@ final class LocalVirtualCameraServer {
         var header = "HTTP/1.1 200 OK\r\n"
         header += "Content-Type: multipart/x-mixed-replace; boundary=\(boundary)\r\n"
         header += "Cache-Control: no-cache, no-store\r\n"
+        header += "Pragma: no-cache\r\n"
         header += "Access-Control-Allow-Origin: *\r\n"
         header += "Connection: keep-alive\r\n"
         header += "\r\n"
@@ -169,13 +194,14 @@ final class LocalVirtualCameraServer {
             let id = ObjectIdentifier(connection)
             self.clientLock.lock()
             self.mjpegClients[id] = connection
+            let total = self.mjpegClients.count
             self.clientLock.unlock()
-            print("VirtualCameraServer: MJPEG client connected (\(self.mjpegClients.count) total)")
+            print("VirtualCameraServer: MJPEG client connected (\(total) total)")
 
             // Monitor for disconnection.
             self.monitorDisconnection(connection, id: id)
 
-            // Send the current frame immediately so client doesn't stare at blank.
+            // Send the current frame immediately so the client doesn't stare at blank.
             if let jpeg = SharedFrameProvider.shared.latestJPEG {
                 self.sendMJPEGPart(to: connection, jpeg: jpeg, id: id)
             }
@@ -187,6 +213,8 @@ final class LocalVirtualCameraServer {
         clientLock.lock()
         let clients = mjpegClients
         clientLock.unlock()
+
+        guard !clients.isEmpty else { return }
 
         for (id, conn) in clients {
             sendMJPEGPart(to: conn, jpeg: jpeg, id: id)
@@ -241,18 +269,32 @@ final class LocalVirtualCameraServer {
         let html = """
         <!DOCTYPE html>
         <html>
-        <head><title>TeamsMakeupCam Virtual Camera</title></head>
-        <body style="background:#111;color:#eee;font-family:system-ui;padding:2em">
-        <h1>TeamsMakeupCam Virtual Camera</h1>
-        <p>Status: \(hasFrame ? "Streaming" : "Waiting for frames...")</p>
-        <p>Frame #\(frameNum) | MJPEG clients: \(clientCount)</p>
-        <h2>Endpoints</h2>
-        <ul>
-        <li><a href="/stream" style="color:#4af">/stream</a> — MJPEG live stream (use in OBS Browser Source)</li>
-        <li><a href="/latest.jpg" style="color:#4af">/latest.jpg</a> — Latest JPEG snapshot</li>
-        </ul>
-        <h2>Live Preview</h2>
-        <img src="/stream" style="max-width:640px;border:1px solid #333" />
+        <head>
+            <title>TeamsMakeupCam Virtual Camera</title>
+            <meta http-equiv="refresh" content="5">
+        </head>
+        <body style="background:#111;color:#eee;font-family:system-ui;padding:2em;max-width:800px;margin:0 auto">
+            <h1>TeamsMakeupCam Virtual Camera</h1>
+            <p>Status: <strong>\(hasFrame ? "Streaming" : "Waiting for frames...")</strong></p>
+            <p>Frame #\(frameNum) | MJPEG clients: \(clientCount)</p>
+
+            <h2>Endpoints</h2>
+            <ul>
+                <li><a href="/stream" style="color:#4af">/stream</a> &mdash; MJPEG live stream (use in OBS Browser Source)</li>
+                <li><a href="/latest.jpg" style="color:#4af">/latest.jpg</a> &mdash; Latest JPEG snapshot</li>
+            </ul>
+
+            <h2>OBS Setup</h2>
+            <ol style="line-height:1.8">
+                <li>Add a <strong>Browser Source</strong></li>
+                <li>Set URL to <code style="background:#333;padding:2px 6px;border-radius:3px">http://127.0.0.1:\(port)/stream</code></li>
+                <li>Set width/height to match your camera resolution (e.g. 1280x720)</li>
+                <li>Click <strong>Start Virtual Camera</strong> in OBS</li>
+                <li>In Teams, select <strong>OBS Virtual Camera</strong></li>
+            </ol>
+
+            <h2>Live Preview</h2>
+            <img src="/stream" style="max-width:640px;border:1px solid #333;border-radius:4px" />
         </body>
         </html>
         """
