@@ -35,12 +35,8 @@ final class SharedFrameProvider {
         queue.sync { _frameNumber }
     }
 
-    // MARK: - Write access (called from VideoFrameProcessor's processing queue)
-
-    /// Store a new composited frame and notify all MJPEG clients.
-    ///
-    /// - Parameter jpegData: The JPEG-encoded composited frame.  Must already
-    ///   contain all makeup overlays burned into the pixels.
+    /// Store a new composited frame, notify MJPEG clients,
+    /// and write to App Group for the Camera Extension.
     func update(_ jpegData: Data) {
         let frameNum: UInt64 = queue.sync {
             _jpegData = jpegData
@@ -55,5 +51,7 @@ final class SharedFrameProvider {
                 userInfo: ["frameNumber": frameNum]
             )
         }
+        // Write to App Group shared container for the Camera Extension process.
+        SharedFrameWriter.shared.writeFrame(jpegData)
     }
 }
