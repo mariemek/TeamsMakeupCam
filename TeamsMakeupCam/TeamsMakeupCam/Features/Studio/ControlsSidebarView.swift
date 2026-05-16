@@ -150,7 +150,7 @@ struct ControlsSidebarView: View {
                 Spacer()
 
                 Button {
-                    settings = MakeupSettings()
+                    settings = .defaultPreset
                     presetStore.setActive(nil)
                     viewModel.syncMakeupSettingsToProcessor()
                 } label: {

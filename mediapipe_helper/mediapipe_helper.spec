@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_all
+
+mp_datas, mp_binaries, mp_hiddenimports = collect_all('mediapipe')
 
 a = Analysis(
     ['mediapipe_helper.py'],
     pathex=[],
-    binaries=[],
-    datas=[('face_landmarker.task', '.')],
-    hiddenimports=[],
+    binaries=mp_binaries,
+    datas=[('face_landmarker.task', '.')] + mp_datas,
+    hiddenimports=mp_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

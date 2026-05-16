@@ -89,12 +89,12 @@ final class EyelinerRenderer {
 
         // Intensity only controls opacity, not geometry.
         layer.path        = path
-        layer.fillColor   = NSColor.labelColor.withAlphaComponent(intensity).cgColor
+        layer.fillColor   = NSColor.black.withAlphaComponent(intensity).cgColor
         layer.strokeColor = NSColor.clear.cgColor
         layer.lineWidth   = 0
         layer.fillRule    = .nonZero
 
-        layer.shadowColor   = NSColor.labelColor.withAlphaComponent(0.10 * intensity).cgColor
+        layer.shadowColor   = NSColor.black.withAlphaComponent(0.10 * intensity).cgColor
         layer.shadowRadius  = 0.8
         layer.shadowOpacity = 1.0
         layer.shadowOffset  = .zero

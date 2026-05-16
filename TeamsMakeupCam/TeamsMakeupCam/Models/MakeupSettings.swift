@@ -45,32 +45,14 @@ struct MakeupSettings {
         )
     }
 
-    // MARK: - Presets
+    // MARK: - Default
 
-    static let naturalPreset = MakeupSettings(
-        lipstickNSColor: .systemRed,
-        lipstickOpacity: 0.10,
-        lipLinerNSColor: .systemRed,
-        lipLinerIntensity: 0.08,
-        smoothingStrength: 0.08,
-        eyelinerIntensity: 0.06,
-    )
-
-    static let softGlamPreset = MakeupSettings(
+    static let defaultPreset = MakeupSettings(
         lipstickNSColor: .systemPink,
         lipstickOpacity: 0.18,
         lipLinerNSColor: .systemPink,
         lipLinerIntensity: 0.16,
         smoothingStrength: 0.12,
         eyelinerIntensity: 0.14,
-    )
-
-    static let polishedPreset = MakeupSettings(
-        lipstickNSColor: .systemRed,
-        lipstickOpacity: 0.24,
-        lipLinerNSColor: .systemRed,
-        lipLinerIntensity: 0.22,
-        smoothingStrength: 0.16,
-        eyelinerIntensity: 0.20,
     )
 }

@@ -35,21 +35,6 @@ struct MainStudioView: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            Button("Natural") {
-                viewModel.makeupSettings = .naturalPreset
-                presetStore.setActive(nil)
-            }
-
-            Button("Soft Glam") {
-                viewModel.makeupSettings = .softGlamPreset
-                presetStore.setActive(nil)
-            }
-
-            Button("Polished") {
-                viewModel.makeupSettings = .polishedPreset
-                presetStore.setActive(nil)
-            }
-
             Spacer()
 
             Text(viewModel.isSessionRunning ? "Live" : "Stopped")

@@ -65,7 +65,7 @@ final class PreviewContainerView: NSView {
     private var lastRenderedExtent: CGRect?
 
     var landmarks: [FaceLandmarks] = [] { didSet { updateOverlay() } }
-    var makeupSettings: MakeupSettings = .naturalPreset { didSet { updateOverlay() } }
+    var makeupSettings: MakeupSettings = .defaultPreset { didSet { updateOverlay() } }
     var showDebugLandmarks: Bool = false { didSet { updateOverlay() } }
 
     override init(frame frameRect: NSRect) {

@@ -87,7 +87,7 @@ final class SidecarLauncher {
     private func helperLaunchCandidates() -> [HelperCandidate] {
         var result: [HelperCandidate] = []
 
-        if let bundledExec = Bundle.main.url(forResource: "mediapipe_helper", withExtension: nil) {
+        if let bundledExec = Bundle.main.url(forAuxiliaryExecutable: "mediapipe_helper") {
             result.append(.executable(bundledExec))
         }
 
@@ -159,7 +159,7 @@ final class SidecarLauncher {
             return false
         }
 
-        let started = waitUntilHealthy(timeout: 12.0)
+        let started = waitUntilHealthy(timeout: 90.0)
         if started {
             print("SidecarLauncher: ✅ helper is healthy on port \(port)")
             return true

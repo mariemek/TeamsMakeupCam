@@ -11,7 +11,7 @@ final class StudioViewModel: ObservableObject {
     @Published var isSessionRunning: Bool = false
     @Published var errorMessage: String?
 
-    @Published var makeupSettings = MakeupSettings()
+    @Published var makeupSettings: MakeupSettings = .defaultPreset
     @Published var debugLandmarks: [FaceLandmarks] = []
     @Published var processedFrame: CIImage?
 
